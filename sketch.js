@@ -1429,8 +1429,9 @@ class Frazzle {
     } else if (this.hopPhase === "air") {
       // ...and fly! gravity pulls him back down
       this.stretchGoal = 1.15;
-      if (this.justTripped) {
-        // falling at the end of a trip: he keeps spinning, slowing down a bit
+      if (this.justTripped || abs(this.spinSpeed) > 0.001) {
+        // spinning in the air (falling at the end of a trip, or after
+        // bumping Frank): he keeps spinning, slowing down a bit
         this.spin += this.spinSpeed;
         this.spinSpeed *= 0.98;
         this.spinGoal = this.spin;
@@ -1438,6 +1439,7 @@ class Frazzle {
       this.vy += 0.4;
       this.x += this.vx;
       this.y += this.vy;
+      this.bounceOffFrank();   // Frank is solid: no passing through him
       // (only check while he's coming down, so a hop can get off the ground)
       if (this.vy > 0 && this.contactY() >= GROUND_Y) this.land();
     }
@@ -1642,6 +1644,12 @@ class Frazzle {
     this.y += ny * overlap;
     let [rx, ry] = this.edgePointToward(-nx, -ny);
     if (this.bounceAt(rx, ry, -nx, -ny)) frank.bump(px, py);
+
+    // landing on top of Frank's round head, he slides off to one side
+    // instead of balancing up there
+    if (this.hopPhase === "air" && ny < -0.6) {
+      this.vx += (dx >= 0 ? 1 : -1) * 0.6;
+    }
   }
 
   // how low his body reaches on the screen at his current tilt (not counting
