@@ -1,0 +1,5 @@
+# Mac folder settings
+.DS_Store
+
+# VS Code settings (contains a path on this computer)
+jsconfig.json
