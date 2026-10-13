@@ -2,6 +2,8 @@
 
 A p5.js virtual creature sketch for Logic of Interaction, week 5.
 
+<img width="800" height="501" alt="Screenshot 2026-10-13 at 9 27 39 AM" src="https://github.com/user-attachments/assets/6955e971-d069-42c5-8760-b7925a5b1d7e" />
+
 Frank is a grumpy little monster hiding in a cave in a dense forest. All he
 really needs is some sunlight and a hug. Frazzle, his happy blob of a buddy,
 is just glad to be there.
