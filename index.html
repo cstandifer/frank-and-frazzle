@@ -2,9 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- viewport-fit=cover lets the sketch use the whole screen, around any notch -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 
     <title>Frank &amp; Frazzle</title>
+
+    <!-- so "Add to Home Screen" opens it like an app, with no browser bars -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Frank &amp; Frazzle">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1d2b1f">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" href="icons/icon-192.png">
 
     <link rel="stylesheet" type="text/css" href="style.css">
 
@@ -13,6 +24,20 @@
   </head>
 
   <body>
+    <!-- only shows up on a phone held upright (see style.css) -->
+    <div id="rotate-hint">
+      <div class="phone">📱</div>
+      <div>Turn your phone sideways to visit Frank &amp; Frazzle</div>
+    </div>
+
+    <!-- shown by sketch.js only where the browser allows full screen -->
+    <button id="fullscreen-btn" aria-label="Full screen" hidden>
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+      </svg>
+    </button>
+
     <script src="sketch.js"></script>
   </body>
 </html>

@@ -1,8 +1,91 @@
-html, body {
+/* the dark forest green around the sketch when the screen's shape doesn't
+   match the sketch's exactly */
+html,
+body {
   margin: 0;
   padding: 0;
+  height: 100%;
+  background: #1d2b1f;
+  overflow: hidden;
+  touch-action: none; /* no pinch-zooming or scrolling the page */
+}
+
+/* the area the sketch can use: the whole screen, minus any notch or rounded
+   corners. sketch.js sizes and places the canvas inside it (see fitToScreen) */
+main {
+  position: fixed;
+  top: env(safe-area-inset-top);
+  bottom: env(safe-area-inset-bottom);
+  left: env(safe-area-inset-left);
+  right: env(safe-area-inset-right);
+  overflow: hidden;
 }
 
 canvas {
+  position: absolute;
   display: block;
+
+  /* stop the browser from scrolling, zooming, or popping up a menu
+     while you're poking and dragging */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* a small round button in the corner for going full screen */
+#fullscreen-btn {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 10px);
+  right: calc(env(safe-area-inset-right) + 10px);
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: #f3ead2;
+  cursor: pointer;
+}
+
+#fullscreen-btn[hidden] {
+  display: none;
+}
+
+/* a message asking phone users to turn their phone sideways */
+#rotate-hint {
+  display: none;
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  #rotate-hint {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 32px;
+    background: #1d2b1f;
+    color: #f3ead2;
+    font-family: system-ui, sans-serif;
+    font-size: 20px;
+    text-align: center;
+  }
+
+  #rotate-hint .phone {
+    font-size: 56px;
+    animation: tip 2s ease-in-out infinite;
+  }
+}
+
+@keyframes tip {
+  0%, 30% { transform: rotate(0deg); }
+  60%, 100% { transform: rotate(-90deg); }
 }

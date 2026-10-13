@@ -24,6 +24,12 @@ is just glad to be there.
   annoyed, Frazzle bounces right off him.
 - **Press D** to show each creature's current state.
 
+It works with a mouse or on a phone or tablet. On a phone, turn it sideways; when you drag a mushroom, it rides just above your fingertip so you can see it.
+
+**To play full screen on a phone:**
+- **iPhone:** in Safari, tap **Share → Add to Home Screen**. Open it from the new icon and it runs like an app, with no browser bars.
+- **Android or iPad:** tap the full screen button in the top-right corner (Android can also use **Add to Home Screen**).
+
 ## Running it locally
 
 Open the folder with a local web server (for example VS Code's Live Server, or

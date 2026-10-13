@@ -25,8 +25,21 @@ let giggleSound = null;
 
 let showDebug = false;     // press D to show each creature's state
 
+// true once the player has touched the screen (a phone or tablet), so we
+// can make tap targets bigger and hold mushrooms above their fingertip
+let usingTouch = false;
+
+let canvasElt;   // the canvas on the page (so we can size it, and tell taps
+                 // on it apart from taps on the full screen button)
+
 function setup() {
-  createCanvas(800, 500);
+  // The sketch is always 800 x 500 inside. fitToScreen() stretches the canvas
+  // to fit the screen, and p5 converts mouse and touch positions back to these
+  // coordinates for us, so nothing else needs to know the screen size.
+  canvasElt = createCanvas(800, 500).elt;
+  pixelDensity(min(displayDensity(), 2));   // sharp, but not too slow on phones
+  fitToScreen();
+  setupFullscreenButton();
   paintScenery();
 
   // enters through a gap in the canopy, lands on the ground to the right
@@ -79,7 +92,114 @@ function draw() {
   if (showDebug) drawDebugLabels();
 }
 
-function mousePressed() {
+// Mouse and touch both end up in press() and release().
+// (mouseX and mouseY follow your finger on a touchscreen too.)
+// Clicks and taps that aren't on the canvas, like on the full screen
+// button, are left alone so the button works normally.
+function mousePressed(event) {
+  if (event && event.target !== canvasElt) return;
+  press();
+}
+
+function mouseReleased() {
+  release();
+}
+
+function touchStarted(event) {
+  if (event && event.target !== canvasElt) return;
+  usingTouch = true;
+  press();
+  // returning false stops the browser from also sending a pretend mouse
+  // click (which would poke twice) and from zooming on a double tap
+  return false;
+}
+
+function touchEnded(event) {
+  release();
+  if (event && event.target !== canvasElt) return;
+  return false;
+}
+
+function touchMoved(event) {
+  if (event && event.target !== canvasElt) return;
+  return false;   // keep the page from scrolling while you drag a mushroom
+}
+
+// ---------------------------------------------------------------------------
+// FITTING THE SCREEN
+// The sketch is always 800 x 500 inside; this stretches the canvas on the
+// page to fit whatever screen it's on.
+// ---------------------------------------------------------------------------
+
+// On phones and tablets, a wide screen would leave big empty bars on the
+// sides. So we zoom in to fill the width, trimming up to this much off the
+// top (canopy) and bottom (grass). The creatures never go there.
+const TRIM_TOP = 40;
+const TRIM_BOTTOM = 35;
+
+function fitToScreen() {
+  let area = document.querySelector("main");   // p5 puts the canvas in <main>
+  let w = area.clientWidth;
+  let h = area.clientHeight;
+
+  // only trim on touch devices; on a computer, show the whole scene
+  let trimming = window.matchMedia("(pointer: coarse)").matches;
+  let mustShow = trimming ? height - TRIM_TOP - TRIM_BOTTOM : height;
+
+  // as big as it can be while the full width fits, and at least the
+  // part we must show fits in the height
+  let k = min(w / width, h / mustShow);
+  let cw = width * k;
+  let ch = height * k;
+  let left = (w - cw) / 2;
+  let top = (h - ch) / 2;
+  if (ch > h) {
+    // taller than the screen: trim the extra off the top and bottom
+    top = -(ch - h) * (TRIM_TOP / (TRIM_TOP + TRIM_BOTTOM));
+  }
+
+  canvasElt.style.width = cw + "px";
+  canvasElt.style.height = ch + "px";
+  canvasElt.style.left = left + "px";
+  canvasElt.style.top = top + "px";
+}
+
+// p5 calls this when the window changes size (or the phone turns sideways)
+function windowResized() {
+  fitToScreen();
+}
+
+// The button in the corner that hides the browser's bars. iPhones don't let
+// web pages do this (there, "Add to Home Screen" does the same job), and it
+// isn't needed when the sketch was opened from the home screen.
+function setupFullscreenButton() {
+  let button = document.getElementById("fullscreen-btn");
+  let page = document.documentElement;
+  let canGoFullscreen = document.fullscreenEnabled || document.webkitFullscreenEnabled;
+  let openedFromHomeScreen =
+    navigator.standalone ||
+    window.matchMedia("(display-mode: standalone), (display-mode: fullscreen)").matches;
+  if (!button || !canGoFullscreen || openedFromHomeScreen) return;
+
+  button.hidden = false;
+  button.addEventListener("click", () => {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      return;
+    }
+    let request = page.requestFullscreen || page.webkitRequestFullscreen;
+    let result = request.call(page);
+    // on Android, also try to keep the screen sideways
+    if (result && result.then) {
+      result.then(() => screen.orientation.lock("landscape")).catch(() => {});
+    }
+  });
+}
+
+function press() {
+  // phones only allow sound after the first tap, so unlock it here
+  if (typeof userStartAudio === "function") userStartAudio();
+
   // mushrooms first, then Frazzle (he's drawn in front of Frank), then Frank
   for (let m of mushrooms) {
     if (m.isMouseOver()) {
@@ -92,11 +212,17 @@ function mousePressed() {
   else if (frank.isMouseOver()) frank.poke(mouseX, mouseY);
 }
 
-function mouseReleased() {
+function release() {
   if (heldMushroom) {
     heldMushroom.drop([frazzle, frank]);
     heldMushroom = null;
   }
+}
+
+// fingers are bigger and less exact than a mouse pointer, so on a
+// touchscreen everything is a bit easier to hit
+function hitSize() {
+  return usingTouch ? 1.3 : 1;
 }
 
 function keyPressed() {
@@ -309,12 +435,18 @@ class Frank {
     }
   }
 
-  // is the mouse over his body? (an oval that roughly covers him)
+  // is the mouse (or a finger) over his body?
   isMouseOver() {
+    return this.isPointOver(mouseX, mouseY, hitSize());
+  }
+
+  // is the point (px, py) over his body? (an oval that roughly covers him;
+  // grow makes the oval bigger)
+  isPointOver(px, py, grow = 1) {
     let s = this.size;
     let cx = this.x + this.facing * s * 0.03;
     let cy = this.y - s * 0.18 * (1 - this.loopy) - s * 0.55;   // lower when sitting
-    return sq((mouseX - cx) / (s * 0.5)) + sq((mouseY - cy) / (s * 0.62)) < 1;
+    return sq((px - cx) / (s * 0.5 * grow)) + sq((py - cy) / (s * 0.62 * grow)) < 1;
   }
 
   // the player poked him at (px, py)
@@ -1140,13 +1272,19 @@ class Frazzle {
     return this.y - s * 0.36 + reach - s * 0.06;
   }
 
-  // is the mouse over his body? (an oval that matches his squash & stretch)
+  // is the mouse (or a finger) over his body?
   isMouseOver() {
+    return this.isPointOver(mouseX, mouseY, hitSize());
+  }
+
+  // is the point (px, py) over his body? (an oval that matches his squash &
+  // stretch; grow makes the oval bigger)
+  isPointOver(px, py, grow = 1) {
     let s = this.size;
     let cy = this.y - s * 0.36 * this.stretch;
-    let rx = (s * 0.65) / this.stretch;
-    let ry = s * 0.42 * this.stretch;
-    return sq((mouseX - this.x) / rx) + sq((mouseY - cy) / ry) < 1;
+    let rx = ((s * 0.65) / this.stretch) * grow;
+    let ry = s * 0.42 * this.stretch * grow;
+    return sq((px - this.x) / rx) + sq((py - cy) / ry) < 1;
   }
 
   // the player poked him at (px, py)
@@ -1792,9 +1930,10 @@ class Mushroom {
 
   update() {
     if (this.state === "held") {
-      // follow the mouse, holding it by the cap
+      // follow the mouse, holding it by the cap (on a touchscreen, hold it
+      // up above the fingertip so your finger doesn't hide it)
       this.x = mouseX;
-      this.y = mouseY + this.size * 0.55;
+      this.y = mouseY + this.size * 0.55 - (usingTouch ? this.size * 1.4 : 0);
     } else if (this.state === "returning") {
       // float back to where it grew
       this.x = lerp(this.x, this.homeX, 0.2);
@@ -1820,19 +1959,25 @@ class Mushroom {
   }
 
   // can only be grabbed when it's fully grown and sitting in its spot
+  // (with a finger, the grab area is quite a bit bigger)
   isMouseOver() {
     if (this.state !== "ready") return false;
-    return dist(mouseX, mouseY, this.x, this.y - this.size * 0.55) < this.size * 0.6;
+    let reach = this.size * (usingTouch ? 1.0 : 0.6);
+    return dist(mouseX, mouseY, this.x, this.y - this.size * 0.55) < reach;
   }
 
   pickUp() {
     this.state = "held";
   }
 
-  // let go: feed it to whoever it was dropped on, or float it back home
+  // let go: feed it to whoever it was dropped on, or float it back home.
+  // What counts is where the mushroom's cap is (on a touchscreen that's a
+  // little above your finger), and a near miss still counts.
   drop(creatures) {
+    let capX = this.x;
+    let capY = this.y - this.size * 0.55;
     for (let c of creatures) {
-      if (c.isMouseOver() && !c.isBusy()) {
+      if (c.isPointOver(capX, capY, 1.2) && !c.isBusy()) {
         c.eatMushroom(this);
         this.state = "beingEaten";
         this.eater = c;
