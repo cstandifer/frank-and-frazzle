@@ -24,10 +24,10 @@
   </head>
 
   <body>
-    <!-- only shows up on a phone held upright (see style.css) -->
-    <div id="rotate-hint">
-      <div class="phone">📱</div>
-      <div>Turn your phone sideways to visit Frank &amp; Frazzle</div>
+    <!-- a little tip for phones held upright (see setupRotateTip in sketch.js) -->
+    <div id="rotate-tip" class="tip" hidden>
+      <span><span class="phone">📱</span> Turn sideways for a bigger view</span>
+      <button class="tip-close" aria-label="Close tip">✕</button>
     </div>
 
     <!-- round buttons in the top-right corner (sketch.js shows the ones that
@@ -53,14 +53,14 @@
     </div>
 
     <!-- on iPhone, the only way to hide Safari's bars is Add to Home Screen -->
-    <div id="home-screen-tip" hidden>
+    <div id="home-screen-tip" class="tip" hidden>
       <span>For full screen: tap <b>Share</b>
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
              stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1" />
         </svg>
         then <b>Add to Home Screen</b></span>
-      <button id="tip-close" aria-label="Close tip">✕</button>
+      <button class="tip-close" aria-label="Close tip">✕</button>
     </div>
 
     <script src="sketch.js"></script>

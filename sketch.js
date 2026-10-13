@@ -47,6 +47,7 @@ function setup() {
   fitToScreen();
   setupFullscreenButton();
   setupHomeScreenTip();
+  setupRotateTip();
   paintScenery();
 
   // enters through a gap in the canopy, lands on the ground to the right
@@ -152,8 +153,36 @@ const TRIM_BOTTOM = 35;
 // camera slides up and down to keep the creatures in view
 let zoomedIn = false;
 let screenScale = 1;    // screen pixels per sketch pixel
-let screenHeight = 0;   // how tall the sketch's area on the screen is
-let cameraY = null;     // when zoomed in: the top of the view, in sketch pixels
+let screenWidth = 0;    // how big the sketch's area on the screen is
+let screenHeight = 0;
+let cameraX = null;     // when zoomed in: the left and top of the view,
+let cameraY = null;     // in sketch pixels
+
+// held upright and zoomed in, this much of the scene's width shows
+const UPRIGHT_VIEW_WIDTH = 480;
+
+// held upright and zoomed in, the camera follows whoever you poked or fed last
+let cameraFocus = null;
+
+// where the pointer (mouse or finger) is on the screen, kept up to date even
+// between p5's events, so a carried mushroom stays under your finger while
+// the camera scrolls
+let pointerScreenX = null;
+let pointerScreenY = null;
+window.addEventListener("pointermove", rememberPointer, { passive: true });
+window.addEventListener("pointerdown", rememberPointer, { passive: true });
+function rememberPointer(e) {
+  pointerScreenX = e.clientX;
+  pointerScreenY = e.clientY;
+}
+
+// the pointer's position in sketch coordinates, worked out fresh from where
+// the canvas is right now
+function pointerInSketch() {
+  if (pointerScreenX === null) return [mouseX, mouseY];
+  let r = canvasElt.getBoundingClientRect();
+  return [((pointerScreenX - r.left) * width) / r.width, ((pointerScreenY - r.top) * height) / r.height];
+}
 
 function fitToScreen() {
   let area = document.querySelector("main");   // p5 puts the canvas in <main>
@@ -165,11 +194,17 @@ function fitToScreen() {
   let mustShow = trimming ? height - TRIM_TOP - TRIM_BOTTOM : height;
 
   // Normally: as big as it can be while the full width fits, and at least
-  // the part we must show fits in the height. Zoomed in: big enough to
-  // cover the whole screen (updateCamera picks which part shows).
-  let k = zoomedIn ? max(w / width, h / height) : min(w / width, h / mustShow);
+  // the part we must show fits in the height. Zoomed in: big enough to cover
+  // the whole screen sideways, or to show UPRIGHT_VIEW_WIDTH of the scene
+  // held upright (updateCamera picks which part shows).
+  let upright = h > w;
+  let k = min(w / width, h / mustShow);
+  if (zoomedIn && upright) k = min(w / UPRIGHT_VIEW_WIDTH, h / height);
+  else if (zoomedIn) k = max(w / width, h / height);
   screenScale = k;
+  screenWidth = w;
   screenHeight = h;
+  cameraX = null;
   cameraY = null;
   let cw = width * k;
   let ch = height * k;
@@ -185,23 +220,54 @@ function fitToScreen() {
   canvasElt.style.left = left + "px";
   canvasElt.style.top = top + "px";
   updateCamera();
+  updateRotateTip();
 }
 
-// When zoomed in, the screen only shows part of the scene's height. This
-// slides the view up and down: normally it frames the forest floor, but it
-// moves up to keep both creatures' heads in view (like when Frazzle floats
-// up high).
+// When zoomed in, the screen only shows part of the scene. This slides the
+// view around to keep the action in view (like a camera):
+// - up and down: it frames the forest floor, but moves up to keep both
+//   creatures' heads in view (like when Frazzle floats up high)
+// - side to side (held upright): it frames both creatures if they fit, or
+//   follows whoever you poked or fed last. While you carry a mushroom, it
+//   holds still, unless your finger is near an edge: then it scrolls that way.
 function updateCamera() {
   if (!zoomedIn || !frank) return;   // (frank doesn't exist yet at the very start)
-  let visible = screenHeight / screenScale;   // how much of the height shows
-  let highestTop = max(0, height - visible);
+  let visibleW = screenWidth / screenScale;    // how much of the scene shows
+  let visibleH = screenHeight / screenScale;
 
-  let goal = 475 - visible;   // the forest floor, with a little grass below it
-  let highest = min(frank.y - frank.size * 1.5, frazzle.y - frazzle.size * 1.1);
-  goal = constrain(min(goal, highest - 15), 0, highestTop);
+  // up and down
+  let goalY = (height - visibleH) / 2;   // (centered, if it all fits)
+  if (visibleH < height) {
+    let floor = 475 - visibleH;   // the forest floor, with a little grass below it
+    let highest = min(frank.y - frank.size * 1.5, frazzle.y - frazzle.size * 1.1);
+    goalY = constrain(min(floor, highest - 15), 0, height - visibleH);
+  }
 
-  // glide there smoothly (or jump straight there the first time)
-  cameraY = cameraY === null ? goal : lerp(cameraY, goal, 0.08);
+  // side to side
+  let goalX = (width - visibleW) / 2;
+  if (visibleW < width) {
+    let maxX = width - visibleW;
+    if (heldMushroom && cameraX !== null) {
+      let edge = screenWidth * 0.15;
+      goalX = cameraX;
+      if (pointerScreenX !== null && pointerScreenX < edge) goalX -= 7;
+      if (pointerScreenX !== null && pointerScreenX > screenWidth - edge) goalX += 7;
+    } else {
+      let a = frank.x;
+      let b = frazzle.x;
+      let focus = cameraFocus === frank ? a : b;
+      if (abs(a - b) < visibleW - 160) focus = (a + b) / 2;   // both fit: frame them together
+      goalX = focus - visibleW / 2;
+    }
+    goalX = constrain(goalX, 0, maxX);
+  }
+
+  // glide there smoothly (or jump straight there the first time); a carried
+  // mushroom scrolls the view directly, so it keeps up with your finger
+  let ease = heldMushroom ? 1 : 0.08;
+  cameraX = cameraX === null ? goalX : lerp(cameraX, goalX, ease);
+  cameraY = cameraY === null ? goalY : lerp(cameraY, goalY, 0.08);
+  canvasElt.style.left = -cameraX * screenScale + "px";
   canvasElt.style.top = -cameraY * screenScale + "px";
 }
 
@@ -245,12 +311,53 @@ function setupHomeScreenTip() {
   } catch (e) {}
 
   tip.hidden = false;
-  document.getElementById("tip-close").addEventListener("click", () => {
+  tip.querySelector(".tip-close").addEventListener("click", () => {
     tip.hidden = true;
     try {
       localStorage.setItem("tipClosed", "yes");
     } catch (e) {}
   });
+}
+
+// On a phone held upright, a little tip suggests turning it sideways for a
+// bigger view. It fades away by itself after a few seconds, and closing it
+// hides it for good. (It's only a suggestion: upright works too.)
+let rotateTipDone = false;
+
+function setupRotateTip() {
+  let tip = document.getElementById("rotate-tip");
+  if (!tip) return;
+  try {
+    rotateTipDone = localStorage.getItem("rotateTipClosed") === "yes";
+  } catch (e) {}
+  tip.querySelector(".tip-close").addEventListener("click", () => {
+    hideRotateTip();
+    try {
+      localStorage.setItem("rotateTipClosed", "yes");
+    } catch (e) {}
+  });
+  updateRotateTip();
+}
+
+// show the tip when the phone is upright (once per visit), hide it otherwise
+function updateRotateTip() {
+  let tip = document.getElementById("rotate-tip");
+  if (!tip || !window.matchMedia("(pointer: coarse)").matches) return;
+  let upright = window.innerHeight > window.innerWidth;
+  if (upright && !rotateTipDone && tip.hidden) {
+    tip.hidden = false;
+    tip.classList.remove("fading");
+    rotateTipDone = true;   // just once each time the sketch is opened
+    setTimeout(hideRotateTip, 6000);
+  } else if (!upright) {
+    tip.hidden = true;
+  }
+}
+
+function hideRotateTip() {
+  let tip = document.getElementById("rotate-tip");
+  tip.classList.add("fading");
+  setTimeout(() => (tip.hidden = true), 600);
 }
 
 // p5 calls this when the window changes size (or the phone turns sideways)
@@ -301,14 +408,17 @@ function press() {
     // floating, he gets grabbed (to twist him around); otherwise poked
     if (frazzle.hopPhase === "floating") frazzle.grab();
     else frazzle.poke(mouseX, mouseY);
+    cameraFocus = frazzle;
   } else if (frank.isMouseOver()) {
     frank.poke(mouseX, mouseY);
+    cameraFocus = frank;
   }
 }
 
 function release() {
   if (heldMushroom) {
     heldMushroom.drop([frazzle, frank]);
+    if (heldMushroom.eater) cameraFocus = heldMushroom.eater;   // the camera follows whoever ate it
     heldMushroom = null;
   }
   if (frazzle.grabbed) frazzle.letGo();
@@ -580,6 +690,15 @@ class Frank {
     this.huggedUntil = until;
     this.heartAt = until - 1300;   // near the end, a little heart gives him away
     this.action = null;
+  }
+
+  // something bumped into him at (px, py) from the middle of his body: his
+  // body dents in a little there (it doesn't annoy him, though)
+  bump(px, py) {
+    this.dentAngle = atan2(py, px * this.facing);
+    this.dentSpring.value = max(this.dentSpring.value, 0.5);
+    this.dentSpring.speed = 0;
+    this.flinchSpring.push(-0.03);
   }
 
   // he can't eat another mushroom while he's eating one or still in a daze
@@ -1412,8 +1531,6 @@ class Frazzle {
   // against the wall makes him roll.
   bounceOffWalls() {
     let s = this.size;
-    let [a, b] = this.bodyRadii();
-    let heaviness = (a * a + b * b) / 4;   // how hard he is to spin (for an oval)
 
     // each wall: which way is "out" (nx, ny), and where it is
     let walls = [
@@ -1431,44 +1548,100 @@ class Frazzle {
       let poke = (midX + rx) * nx + (midY + ry) * ny - wallAt;
       if (poke <= 0) continue;
 
-      // move him back inside
+      // move him back inside, then bounce
       this.x -= nx * poke;
       this.y -= ny * poke;
-
-      // how fast the touching spot is moving into the wall
-      // (his own movement, plus the spot swinging around as he spins)
-      let spotVX = this.vx - this.spinSpeed * ry;
-      let spotVY = this.vy + this.spinSpeed * rx;
-      let intoWall = spotVX * nx + spotVY * ny;
-      if (intoWall <= 0) continue;
-
-      // the push back from the wall, pointing back into the screen
-      let pushX = -nx;
-      let pushY = -ny;
-      let twist = rx * pushY - ry * pushX;   // how much this push would spin him
-      let push = ((1 + BOUNCINESS) * intoWall) / (1 + (twist * twist) / heaviness);
-      this.vx += push * pushX;
-      this.vy += push * pushY;
-      this.spinSpeed += (twist * push) / heaviness;
-
-      // grip: the wall drags on the touching spot as it slides along,
-      // which rolls him a little
-      let alongX = -pushY;
-      let alongY = pushX;
-      let sliding = spotVX * alongX + spotVY * alongY;
-      let rollTwist = rx * alongY - ry * alongX;
-      let grip = -sliding / (1 + (rollTwist * rollTwist) / heaviness);
-      grip = constrain(grip, -WALL_GRIP * push, WALL_GRIP * push);
-      this.vx += grip * alongX;
-      this.vy += grip * alongY;
-      this.spinSpeed += (rollTwist * grip) / heaviness;
-
-      // squish: he presses into the wall a little and springs back
-      let squish = min(intoWall * 2.5, s * 0.1);
-      this.pressXSpring.value += nx * squish;
-      this.pressYSpring.value += ny * squish;
-      this.stretchSpring.push(-0.03);
+      this.bounceAt(rx, ry, nx, ny);
     }
+
+    this.bounceOffFrank();
+  }
+
+  // The bounce itself, at the spot (rx, ry) on his body (measured from his
+  // middle), against something in direction (nx, ny) from him. Returns
+  // true if he was actually moving into it (so it really was a bump).
+  bounceAt(rx, ry, nx, ny) {
+    let s = this.size;
+    let [a, b] = this.bodyRadii();
+    let heaviness = (a * a + b * b) / 4;   // how hard he is to spin (for an oval)
+
+    // how fast the touching spot is moving into it
+    // (his own movement, plus the spot swinging around as he spins)
+    let spotVX = this.vx - this.spinSpeed * ry;
+    let spotVY = this.vy + this.spinSpeed * rx;
+    let intoWall = spotVX * nx + spotVY * ny;
+    if (intoWall <= 0) return false;
+
+    // the push back, pointing away from what he hit
+    let pushX = -nx;
+    let pushY = -ny;
+    let twist = rx * pushY - ry * pushX;   // how much this push would spin him
+    let push = ((1 + BOUNCINESS) * intoWall) / (1 + (twist * twist) / heaviness);
+    this.vx += push * pushX;
+    this.vy += push * pushY;
+    this.spinSpeed += (twist * push) / heaviness;
+
+    // grip: it drags on the touching spot as it slides along, which rolls
+    // him a little
+    let alongX = -pushY;
+    let alongY = pushX;
+    let sliding = spotVX * alongX + spotVY * alongY;
+    let rollTwist = rx * alongY - ry * alongX;
+    let grip = -sliding / (1 + (rollTwist * rollTwist) / heaviness);
+    grip = constrain(grip, -WALL_GRIP * push, WALL_GRIP * push);
+    this.vx += grip * alongX;
+    this.vy += grip * alongY;
+    this.spinSpeed += (rollTwist * grip) / heaviness;
+
+    // squish: he presses into it a little and springs back
+    let squish = min(intoWall * 2.5, s * 0.1);
+    this.pressXSpring.value += nx * squish;
+    this.pressYSpring.value += ny * squish;
+    this.stretchSpring.push(-0.03);
+    return true;
+  }
+
+  // Frank is solid too: floating into him, Frazzle bounces off his round
+  // body the same way he bounces off the walls, and Frank's body dents in a
+  // little where he got bumped.
+  bounceOffFrank() {
+    let s = this.size;
+    let fs = frank.size;
+    // Frank's body as an oval (sitting lower when he's in a daze)
+    let fx = frank.x + frank.facing * fs * 0.03;
+    let fy = frank.y - fs * 0.18 * (1 - frank.loopy) - fs * 0.55;
+    let frx = fs * 0.47;
+    let fry = fs * 0.55;
+
+    // the direction from Frank's middle to Frazzle's middle
+    let dx = this.x - fx;
+    let dy = this.y - s * 0.36 - fy;
+    let d = sqrt(dx * dx + dy * dy);
+    if (d < 1) return;
+    dx /= d;
+    dy /= d;
+
+    // how far Frank's oval reaches toward Frazzle, and Frazzle's toward Frank
+    let frankReach = 1 / sqrt(sq(dx / frx) + sq(dy / fry));
+    let [ex, ey] = this.edgePointToward(-dx, -dy);
+    let frazzleReach = -(ex * dx + ey * dy);
+    let overlap = frankReach + frazzleReach - d;
+    if (overlap <= 0) return;
+
+    // straight out from Frank's surface at the spot where they touch
+    let px = dx * frankReach;
+    let py = dy * frankReach;
+    let nx = px / (frx * frx);
+    let ny = py / (fry * fry);
+    let len = sqrt(nx * nx + ny * ny);
+    nx /= len;
+    ny /= len;
+
+    // push Frazzle back out, then bounce him off
+    this.x += nx * overlap;
+    this.y += ny * overlap;
+    let [rx, ry] = this.edgePointToward(-nx, -ny);
+    if (this.bounceAt(rx, ry, -nx, -ny)) frank.bump(px, py);
   }
 
   // how low his body reaches on the screen at his current tilt (not counting
@@ -2190,8 +2363,9 @@ class Mushroom {
     if (this.state === "held") {
       // follow the mouse, holding it by the cap (on a touchscreen, hold it
       // up above the fingertip so your finger doesn't hide it)
-      this.x = mouseX;
-      this.y = mouseY + this.size * 0.55 - (usingTouch ? this.size * 1.4 : 0);
+      let [px, py] = pointerInSketch();
+      this.x = px;
+      this.y = py + this.size * 0.55 - (usingTouch ? this.size * 1.4 : 0);
     } else if (this.state === "returning") {
       // float back to where it grew
       this.x = lerp(this.x, this.homeX, 0.2);
@@ -2226,6 +2400,7 @@ class Mushroom {
 
   pickUp() {
     this.state = "held";
+    this.eater = null;
   }
 
   // let go: feed it to whoever it was dropped on, or float it back home.
