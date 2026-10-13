@@ -33,12 +33,17 @@ canvas {
   -webkit-touch-callout: none;
 }
 
-/* a small round button in the corner for going full screen */
-#fullscreen-btn {
+/* small round buttons in the top-right corner (zoom, full screen) */
+#corner-buttons {
   position: fixed;
   top: calc(env(safe-area-inset-top) + 10px);
   right: calc(env(safe-area-inset-right) + 10px);
   z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+
+.corner-btn {
   width: 40px;
   height: 40px;
   display: flex;
@@ -52,8 +57,47 @@ canvas {
   cursor: pointer;
 }
 
-#fullscreen-btn[hidden] {
+.corner-btn[hidden],
+#home-screen-tip[hidden] {
   display: none;
+}
+
+/* when zoomed in, the zoom button shows a minus instead of a plus */
+#zoom-btn.zoomed .plus-bar {
+  display: none;
+}
+
+/* the iPhone tip: a small pill along the bottom of the screen */
+#home-screen-tip {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 10px);
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 16px;
+  border-radius: 999px;
+  background: rgba(20, 30, 22, 0.85);
+  color: #f3ead2;
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+#home-screen-tip svg {
+  vertical-align: -3px;
+}
+
+#tip-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: inherit;
+  font-size: 13px;
 }
 
 /* a message asking phone users to turn their phone sideways */

@@ -43,8 +43,10 @@ function setup() {
   // coordinates for us, so nothing else needs to know the screen size.
   canvasElt = createCanvas(800, 500).elt;
   pixelDensity(min(displayDensity(), 2));   // sharp, but not too slow on phones
+  setupZoomButton();
   fitToScreen();
   setupFullscreenButton();
+  setupHomeScreenTip();
   paintScenery();
 
   // enters through a gap in the canopy, lands on the ground to the right
@@ -97,6 +99,8 @@ function draw() {
   else cursor(ARROW);
 
   if (showDebug) drawDebugLabels();
+
+  updateCamera();
 }
 
 // Mouse and touch both end up in press() and release().
@@ -144,6 +148,13 @@ function touchMoved(event) {
 const TRIM_TOP = 40;
 const TRIM_BOTTOM = 35;
 
+// zoomed in (the zoom button): the scene fills the whole screen, and a
+// camera slides up and down to keep the creatures in view
+let zoomedIn = false;
+let screenScale = 1;    // screen pixels per sketch pixel
+let screenHeight = 0;   // how tall the sketch's area on the screen is
+let cameraY = null;     // when zoomed in: the top of the view, in sketch pixels
+
 function fitToScreen() {
   let area = document.querySelector("main");   // p5 puts the canvas in <main>
   let w = area.clientWidth;
@@ -153,9 +164,13 @@ function fitToScreen() {
   let trimming = window.matchMedia("(pointer: coarse)").matches;
   let mustShow = trimming ? height - TRIM_TOP - TRIM_BOTTOM : height;
 
-  // as big as it can be while the full width fits, and at least the
-  // part we must show fits in the height
-  let k = min(w / width, h / mustShow);
+  // Normally: as big as it can be while the full width fits, and at least
+  // the part we must show fits in the height. Zoomed in: big enough to
+  // cover the whole screen (updateCamera picks which part shows).
+  let k = zoomedIn ? max(w / width, h / height) : min(w / width, h / mustShow);
+  screenScale = k;
+  screenHeight = h;
+  cameraY = null;
   let cw = width * k;
   let ch = height * k;
   let left = (w - cw) / 2;
@@ -169,6 +184,73 @@ function fitToScreen() {
   canvasElt.style.height = ch + "px";
   canvasElt.style.left = left + "px";
   canvasElt.style.top = top + "px";
+  updateCamera();
+}
+
+// When zoomed in, the screen only shows part of the scene's height. This
+// slides the view up and down: normally it frames the forest floor, but it
+// moves up to keep both creatures' heads in view (like when Frazzle floats
+// up high).
+function updateCamera() {
+  if (!zoomedIn || !frank) return;   // (frank doesn't exist yet at the very start)
+  let visible = screenHeight / screenScale;   // how much of the height shows
+  let highestTop = max(0, height - visible);
+
+  let goal = 475 - visible;   // the forest floor, with a little grass below it
+  let highest = min(frank.y - frank.size * 1.5, frazzle.y - frazzle.size * 1.1);
+  goal = constrain(min(goal, highest - 15), 0, highestTop);
+
+  // glide there smoothly (or jump straight there the first time)
+  cameraY = cameraY === null ? goal : lerp(cameraY, goal, 0.08);
+  canvasElt.style.top = -cameraY * screenScale + "px";
+}
+
+// the magnifying glass button: zoom in to fill the screen, or back out to
+// see the whole scene. Only on phones and tablets.
+function setupZoomButton() {
+  let button = document.getElementById("zoom-btn");
+  if (!button || !window.matchMedia("(pointer: coarse)").matches) return;
+
+  // remember the choice from last time (if the browser lets us)
+  try {
+    zoomedIn = localStorage.getItem("zoomedIn") === "yes";
+  } catch (e) {}
+
+  button.hidden = false;
+  showZoomState(button);
+  button.addEventListener("click", () => {
+    zoomedIn = !zoomedIn;
+    try {
+      localStorage.setItem("zoomedIn", zoomedIn ? "yes" : "no");
+    } catch (e) {}
+    showZoomState(button);
+    fitToScreen();
+  });
+}
+
+// the button shows a plus to zoom in, and a minus to zoom back out
+function showZoomState(button) {
+  button.classList.toggle("zoomed", zoomedIn);
+  button.setAttribute("aria-label", zoomedIn ? "Zoom out" : "Zoom in");
+}
+
+// On iPhone (in Safari, not opened from the home screen), a little tip
+// explains how to get rid of the browser bars. Closing it hides it for good.
+function setupHomeScreenTip() {
+  let tip = document.getElementById("home-screen-tip");
+  let isIPhone = /iPhone|iPod/.test(navigator.userAgent);
+  if (!tip || !isIPhone || navigator.standalone) return;
+  try {
+    if (localStorage.getItem("tipClosed") === "yes") return;
+  } catch (e) {}
+
+  tip.hidden = false;
+  document.getElementById("tip-close").addEventListener("click", () => {
+    tip.hidden = true;
+    try {
+      localStorage.setItem("tipClosed", "yes");
+    } catch (e) {}
+  });
 }
 
 // p5 calls this when the window changes size (or the phone turns sideways)
