@@ -15,6 +15,11 @@ const FRAZZLE_TRIP_MAX = 38000;
 
 const EAT_TIME = 1100;     // how long eating a mushroom takes: open, chomp, swallow
 
+// how Frazzle bounces off the edges of the screen while he's floating
+const FLOAT_SPEED = 1.8;    // his drifting speed (pixels per frame)
+const BOUNCINESS = 0.75;    // 1 = keeps all his speed in a bounce, 0 = goes splat
+const WALL_GRIP = 0.3;      // how much the walls grab at him and make him roll
+
 let heldMushroom = null;   // the mushroom the player is carrying, if any
 
 // Frazzle's giggle. To add a real sound, put a file like giggle.mp3 in this
@@ -83,9 +88,11 @@ function draw() {
   // the mushroom you're carrying goes on top of everything
   if (heldMushroom) heldMushroom.display();
 
-  // the cursor hints at what you can do: grab a mushroom, or poke a creature
-  if (heldMushroom) cursor("grabbing");
+  // the cursor hints at what you can do: grab a mushroom (or a floating
+  // Frazzle, to twist him around), or poke a creature
+  if (heldMushroom || frazzle.grabbed) cursor("grabbing");
   else if (mushrooms.some((m) => m.isMouseOver())) cursor("grab");
+  else if (frazzle.hopPhase === "floating" && frazzle.isMouseOver()) cursor("grab");
   else if (frazzle.isMouseOver() || frank.isMouseOver()) cursor(HAND);
   else cursor(ARROW);
 
@@ -208,8 +215,13 @@ function press() {
       return;
     }
   }
-  if (frazzle.isMouseOver()) frazzle.poke(mouseX, mouseY);
-  else if (frank.isMouseOver()) frank.poke(mouseX, mouseY);
+  if (frazzle.isMouseOver()) {
+    // floating, he gets grabbed (to twist him around); otherwise poked
+    if (frazzle.hopPhase === "floating") frazzle.grab();
+    else frazzle.poke(mouseX, mouseY);
+  } else if (frank.isMouseOver()) {
+    frank.poke(mouseX, mouseY);
+  }
 }
 
 function release() {
@@ -217,6 +229,7 @@ function release() {
     heldMushroom.drop([frazzle, frank]);
     heldMushroom = null;
   }
+  if (frazzle.grabbed) frazzle.letGo();
 }
 
 // fingers are bigger and less exact than a mouse pointer, so on a
@@ -1090,8 +1103,20 @@ class Frazzle {
     this.tripUntil = 0;
     this.tripMushroom = null;   // the one he ate (it grows back when his trip ends)
     this.loopy = 0;             // eases 0 to 1 as the trip kicks in
-    this.spin = 0;              // his tilt angle (poking him while floating turns him)
+    this.spin = 0;              // his tilt angle
     this.spinGoal = 0;          // the angle he's turning toward
+    this.spinSpeed = 0;         // how fast he's spinning while floating (radians per frame)
+
+    // a bounce presses him against the wall for a moment, squishing that side
+    this.pressXSpring = new Spring(0, 0.25, 0.7);
+    this.pressYSpring = new Spring(0, 0.25, 0.7);
+    this.pressX = 0;
+    this.pressY = 0;
+
+    // while he's floating, the player can grab him and twist him around
+    this.grabbed = false;
+    this.lastPointerX = 0;      // where the pointer was last frame
+    this.lastPointerY = 0;
 
     // coming down from a trip leaves him dizzy for a moment
     this.justTripped = false;   // true while he's falling at the end of a trip
@@ -1135,13 +1160,14 @@ class Frazzle {
     this.loopy = lerp(this.loopy, tripping ? 1 : 0, 0.04);
 
     // he turns smoothly toward his goal angle and stays there
-    this.spin = lerp(this.spin, this.spinGoal, 0.12);
+    this.spin = lerp(this.spin, this.spinGoal, this.grabbed ? 0.5 : 0.12);
 
     if (this.hopPhase === "floating") {
       this.float();
       if (!tripping) {
         // the trip wears off: gravity comes back and he drops to the ground,
-        // still at whatever angle he was tilted
+        // still at whatever angle he was tilted (slipping out of your grip)
+        this.grabbed = false;
         this.hopPhase = "air";
         this.justTripped = true;
         this.vx *= 0.3;
@@ -1202,6 +1228,12 @@ class Frazzle {
     } else if (this.hopPhase === "air") {
       // ...and fly! gravity pulls him back down
       this.stretchGoal = 1.15;
+      if (this.justTripped) {
+        // falling at the end of a trip: he keeps spinning, slowing down a bit
+        this.spin += this.spinSpeed;
+        this.spinSpeed *= 0.98;
+        this.spinGoal = this.spin;
+      }
       this.vy += 0.4;
       this.x += this.vx;
       this.y += this.vy;
@@ -1211,6 +1243,8 @@ class Frazzle {
 
     this.stretch = this.stretchSpring.update(this.stretchGoal);
     this.sink = this.sinkSpring.update(0);
+    this.pressX = this.pressXSpring.update(0);
+    this.pressY = this.pressYSpring.update(0);
 
     let onGround = ["ground", "crouch", "dizzy", "hugging"].includes(this.hopPhase);
     this.hugReach = lerp(this.hugReach, this.hopPhase === "hugging" ? 1 : 0, this.hopPhase === "hugging" ? 0.15 : 0.3);
@@ -1241,26 +1275,118 @@ class Frazzle {
   // drifting around the screen, bouncing off the edges
   float() {
     this.stretchGoal = 1 + 0.06 * sin(millis() * 0.003);
+
+    // spin: you control it while you're holding him; otherwise it carries
+    // on by itself and the air slowly calms it down
+    if (this.grabbed) {
+      this.twistToPointer();
+    } else {
+      this.spin += this.spinSpeed;
+      this.spinSpeed *= 0.99;
+    }
+    this.spinGoal = this.spin;
+
     this.x += this.vx;
     this.y += this.vy;
+    this.bounceOffWalls();
 
-    // how far his body reaches sideways and up/down from its middle,
-    // at his current tilt
+    // he's a floaty little guy: after a bounce, he eases back to his
+    // gentle drifting speed (so he never gets stuck or zooms off)
+    let speed = sqrt(this.vx * this.vx + this.vy * this.vy);
+    if (speed > 0.01) {
+      let fix = lerp(1, FLOAT_SPEED / speed, 0.02);
+      this.vx *= fix;
+      this.vy *= fix;
+    }
+    if (abs(this.vx) > 0.5) this.facing = this.vx > 0 ? 1 : -1;
+  }
+
+  // his body as an oval: [half its width, half its height] before tilting
+  bodyRadii() {
+    return [(this.size * 0.65) / this.stretch, this.size * 0.42 * this.stretch];
+  }
+
+  // the point on the edge of his tilted oval that sticks out farthest in
+  // direction (nx, ny), measured from the middle of his body. This is the
+  // spot that touches a wall in that direction.
+  edgePointToward(nx, ny) {
+    let [a, b] = this.bodyRadii();
+    let c = cos(this.spin);
+    let sn = sin(this.spin);
+    // turn the direction into his own (untilted) view...
+    let lx = nx * c + ny * sn;
+    let ly = -nx * sn + ny * c;
+    // ...find the farthest point of the oval that way...
+    let k = sqrt(a * a * lx * lx + b * b * ly * ly);
+    let px = (a * a * lx) / k;
+    let py = (b * b * ly) / k;
+    // ...and tilt it back to the screen's view
+    return [px * c - py * sn, px * sn + py * c];
+  }
+
+  // Bouncing like a real object: the exact spot of his oval that touches
+  // the wall gets pushed back. If that spot isn't lined up with his middle
+  // (he's tilted), the push also sets him spinning, and a little grip
+  // against the wall makes him roll.
+  bounceOffWalls() {
     let s = this.size;
-    let midY = this.y - s * 0.36;
-    let reachX = sqrt(sq(s * 0.65 * cos(this.spin)) + sq(s * 0.42 * sin(this.spin)));
-    let reachY = sqrt(sq(s * 0.65 * sin(this.spin)) + sq(s * 0.42 * cos(this.spin)));
+    let [a, b] = this.bodyRadii();
+    let heaviness = (a * a + b * b) / 4;   // how hard he is to spin (for an oval)
 
-    // bounce off the sides, the top, and the ground (a little squish each time)
-    if ((this.x - reachX < 0 && this.vx < 0) || (this.x + reachX > width && this.vx > 0)) {
-      this.vx *= -1;
-      this.stretchSpring.push(-0.05);
+    // each wall: which way is "out" (nx, ny), and where it is
+    let walls = [
+      [-1, 0, 0],          // left edge of the screen
+      [1, 0, width],       // right edge
+      [0, -1, -5],         // top (5 pixels down from the edge)
+      [0, 1, GROUND_Y],    // the ground
+    ];
+    for (let [nx, ny, wallAt] of walls) {
+      let midX = this.x;
+      let midY = this.y - s * 0.36;
+      let [rx, ry] = this.edgePointToward(nx, ny);
+
+      // how far that edge point pokes past the wall
+      let poke = (midX + rx) * nx + (midY + ry) * ny - wallAt;
+      if (poke <= 0) continue;
+
+      // move him back inside
+      this.x -= nx * poke;
+      this.y -= ny * poke;
+
+      // how fast the touching spot is moving into the wall
+      // (his own movement, plus the spot swinging around as he spins)
+      let spotVX = this.vx - this.spinSpeed * ry;
+      let spotVY = this.vy + this.spinSpeed * rx;
+      let intoWall = spotVX * nx + spotVY * ny;
+      if (intoWall <= 0) continue;
+
+      // the push back from the wall, pointing back into the screen
+      let pushX = -nx;
+      let pushY = -ny;
+      let twist = rx * pushY - ry * pushX;   // how much this push would spin him
+      let push = ((1 + BOUNCINESS) * intoWall) / (1 + (twist * twist) / heaviness);
+      this.vx += push * pushX;
+      this.vy += push * pushY;
+      this.spinSpeed += (twist * push) / heaviness;
+
+      // grip: the wall drags on the touching spot as it slides along,
+      // which rolls him a little
+      let alongX = -pushY;
+      let alongY = pushX;
+      let sliding = spotVX * alongX + spotVY * alongY;
+      let rollTwist = rx * alongY - ry * alongX;
+      let grip = -sliding / (1 + (rollTwist * rollTwist) / heaviness);
+      grip = constrain(grip, -WALL_GRIP * push, WALL_GRIP * push);
+      this.vx += grip * alongX;
+      this.vy += grip * alongY;
+      this.spinSpeed += (rollTwist * grip) / heaviness;
+
+      // squish: he presses into the wall a little and springs back
+      let squish = min(intoWall * 2.5, s * 0.1);
+      this.pressXSpring.value += nx * squish;
+      this.pressYSpring.value += ny * squish;
+      this.stretchSpring.push(-0.03);
     }
-    if ((midY - reachY < 5 && this.vy < 0) || (midY + reachY > GROUND_Y - 5 && this.vy > 0)) {
-      this.vy *= -1;
-      this.stretchSpring.push(-0.05);
-    }
-    if (abs(this.vx) > 0.2) this.facing = this.vx > 0 ? 1 : -1;
   }
 
   // how low his body reaches on the screen at his current tilt (not counting
@@ -1287,13 +1413,45 @@ class Frazzle {
     return sq((px - this.x) / rx) + sq((py - cy) / ry) < 1;
   }
 
+  // grabbed while floating: you can twist him around as he drifts
+  grab() {
+    this.grabbed = true;
+    this.lastPointerX = mouseX;
+    this.lastPointerY = mouseY;
+    this.stretchSpring.push(-0.05);   // a little squish as you grab him
+    this.giggle();
+  }
+
+  letGo() {
+    this.grabbed = false;
+  }
+
+  // drag around him to turn him, like turning a knob. Only the pointer's
+  // movement counts, so his own drifting never turns him: if you hold
+  // still, he keeps his angle.
+  twistToPointer() {
+    // from the middle of his body out to the pointer...
+    let rx = mouseX - this.x;
+    let ry = mouseY - (this.y - this.size * 0.36);
+    // ...and how far the pointer moved since last frame
+    let dx = mouseX - this.lastPointerX;
+    let dy = mouseY - this.lastPointerY;
+    // the part of that movement that goes *around* him (not toward or away
+    // from him) is how far he turns, in radians. Right over his middle it
+    // would jump around, so ignore it there.
+    let r2 = rx * rx + ry * ry;
+    let turned = r2 > 64 ? (rx * dy - ry * dx) / r2 : 0;
+    this.spin += turned;
+    // remember how fast you're turning him, so a flick keeps him spinning
+    // after you let go (and letting go slowly leaves him where he is)
+    this.spinSpeed = lerp(this.spinSpeed, turned, 0.3);
+    this.lastPointerX = mouseX;
+    this.lastPointerY = mouseY;
+  }
+
   // the player poked him at (px, py)
   poke(px, py) {
-    if (this.hopPhase === "floating") {
-      // he turns 60-75 degrees (either way) and stays tilted, and giggles
-      this.spinGoal += random([-1, 1]) * radians(random(60, 75));
-      this.giggle();
-    } else if (this.hopPhase === "ground" || this.hopPhase === "crouch") {
+    if (this.hopPhase === "ground" || this.hopPhase === "crouch") {
       if (this.eatingSince !== null) return;   // not with his mouth full!
 
       // where on him was he poked? -1 = his left edge, 0 = middle, 1 = right edge
@@ -1359,6 +1517,7 @@ class Frazzle {
   }
 
   startTrip(m) {
+    this.spinSpeed = 0;
     this.tripUntil = millis() + random(FRAZZLE_TRIP_MIN, FRAZZLE_TRIP_MAX);
     this.tripMushroom = m;
     this.hopPhase = "floating";
@@ -1390,6 +1549,7 @@ class Frazzle {
   land() {
     this.vx = 0;
     this.vy = 0;
+    this.spinSpeed = 0;
     // sink in a little and spring back: squishes the side that hit the ground
     this.sinkSpring.value = 0.07;
     this.sinkSpring.speed = 0;
@@ -1464,10 +1624,10 @@ class Frazzle {
 
     push();
     // (0, 0) is now the middle of his bottom (sunk in a bit just after landing)
-    translate(this.x, this.y + this.sink * s);
+    translate(this.x + this.pressX, this.y + this.sink * s + this.pressY);
 
     // soft shadow on the ground: smaller and fainter the higher he hops
-    let lift = GROUND_Y - (this.y + this.sink * s);
+    let lift = GROUND_Y - (this.y + this.sink * s + this.pressY);
     noStroke();
     fill(0, 0, 0, map(lift, 0, 80, 45, 12, true));
     ellipse(0, lift, s * map(lift, 0, 80, 1.3, 0.7, true), s * 0.12);
@@ -1515,7 +1675,7 @@ class Frazzle {
     if (this.hugReach < 0.05) return;
     let s = this.size;
     push();
-    translate(this.x, this.y + this.sink * s);
+    translate(this.x + this.pressX, this.y + this.sink * s + this.pressY);
     translate(0, -s * 0.36);
     rotate(this.spin);
     translate(0, s * 0.36);
@@ -1586,34 +1746,50 @@ class Frazzle {
       let f = 1 + 0.03 * sin(2 * a + t * 3) + 0.02 * sin(3 * a - t * 2);
       let x = cos(a) * rx * f;
       let y = -ry * 0.85 + sin(a) * ry * f;   // sit the oval a little low
-      [x, y] = this.squishAgainstGround(x, y, s);
+      [x, y] = this.squishAgainstEdges(x, y, s);
       curveVertex(x, y);
     }
     endShape();
   }
 
-  // If this point of his outline would end up below the ground (after he's
-  // tilted and squashed), press it flat against the ground instead. That
-  // squishes whichever side of him is touching the ground.
-  // (this.flatten blends between fully round and fully squished)
-  squishAgainstGround(x, y, s) {
-    if (this.flatten < 0.01) return [x, y];
+  // If this point of his outline would end up past the ground (or, while
+  // he's floating, past the edges of the screen) after he's tilted and
+  // squashed, press it flat against that edge instead. That squishes
+  // whichever side of him is touching it.
+  // (this.flatten blends between fully round and fully squished on the ground)
+  squishAgainstEdges(x, y, s) {
+    let floating = this.hopPhase === "floating";
+    let groundAmount = floating ? 1 : this.flatten;
+    if (groundAmount < 0.01) return [x, y];
+
     let cy = -s * 0.36;                      // he tilts around this point
     let k = cos(this.spin);
     let n = sin(this.spin);
-    let groundY = GROUND_Y - (this.y + this.sink * s);   // the ground, measured from his origin
+    // where his origin is on the screen right now
+    let originX = this.x + this.pressX;
+    let originY = this.y + this.sink * s + this.pressY;
 
     // where this point ends up on screen: squash/stretch, then tilt
     let sx = (x * this.facing) / this.stretch;
     let sy = y * this.stretch - cy;
     let qx = sx * k - sy * n;
     let qy = sx * n + sy * k + cy;
-    if (qy <= groundY) return [x, y];
 
-    // press it up to the ground, then work backward to his own coordinates
-    qy = lerp(qy, groundY, this.flatten) - cy;
-    let ux = qx * k + qy * n;
-    let uy = -qx * n + qy * k;
+    // press it back inside the ground (and the screen's edges, if floating)
+    let newX = qx;
+    let newY = qy;
+    if (originY + qy > GROUND_Y) newY = lerp(qy, GROUND_Y - originY, groundAmount);
+    if (floating) {
+      if (originX + qx < 0) newX = -originX;
+      if (originX + qx > width) newX = width - originX;
+      if (originY + qy < 5) newY = 5 - originY;
+    }
+    if (newX === qx && newY === qy) return [x, y];
+
+    // work backward to his own coordinates
+    newY -= cy;
+    let ux = newX * k + newY * n;
+    let uy = -newX * n + newY * k;
     return [(ux * this.stretch) / this.facing, (uy + cy) / this.stretch];
   }
 
