@@ -2,8 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <!-- viewport-fit=cover lets the sketch use the whole screen, around any notch -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <!-- viewport-fit=cover lets the sketch use the whole screen, around any notch.
+         The scale is locked at 1 so turning the phone back and forth can't leave
+         the page zoomed in or out (Chrome on Android would otherwise drift). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 
     <title>Frank &amp; Frazzle</title>
 

@@ -186,6 +186,7 @@ function pointerInSketch() {
 
 function fitToScreen() {
   let area = document.querySelector("main");   // p5 puts the canvas in <main>
+  if (!area || !canvasElt) return;
   let w = area.clientWidth;
   let h = area.clientHeight;
 
@@ -362,8 +363,19 @@ function hideRotateTip() {
 
 // p5 calls this when the window changes size (or the phone turns sideways)
 function windowResized() {
-  fitToScreen();
+  refitSoon();
 }
+
+// While a phone turns, the browser reports in-between sizes for a moment, so
+// fit now and again once things have settled.
+let refitTimers = [];
+function refitSoon() {
+  fitToScreen();
+  refitTimers.forEach(clearTimeout);
+  refitTimers = [150, 400, 900].map((ms) => setTimeout(fitToScreen, ms));
+}
+window.addEventListener("orientationchange", refitSoon);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", refitSoon);
 
 // The button in the corner that hides the browser's bars. iPhones don't let
 // web pages do this (there, "Add to Home Screen" does the same job), and it
