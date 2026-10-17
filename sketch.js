@@ -370,11 +370,39 @@ function windowResized() {
 // fit now and again once things have settled.
 let refitTimers = [];
 function refitSoon() {
+  resetPageZoom();
   fitToScreen();
   refitTimers.forEach(clearTimeout);
   refitTimers = [150, 400, 900].map((ms) => setTimeout(fitToScreen, ms));
 }
 window.addEventListener("orientationchange", refitSoon);
+
+// If the browser has zoomed the page anyway (Chrome on Android can, as the
+// phone turns), setting the viewport tag again snaps it back to normal size.
+function resetPageZoom() {
+  let vv = window.visualViewport;
+  if (!vv || Math.abs(vv.scale - 1) < 0.01) return;
+  let meta = document.querySelector('meta[name="viewport"]');
+  if (!meta) return;
+  let content = meta.getAttribute("content");
+  meta.setAttribute("content", content.replace("initial-scale=1.0", "initial-scale=1.01"));
+  setTimeout(() => meta.setAttribute("content", content), 50);
+}
+
+// Add ?debug to the address to see the sizes the sketch is working with.
+if (/[?&]debug/.test(location.search)) {
+  let box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:8px;bottom:8px;z-index:9;font:12px/1.4 monospace;color:#fff;background:rgba(0,0,0,.6);padding:6px 8px;border-radius:6px;pointer-events:none";
+  document.body.appendChild(box);
+  setInterval(() => {
+    let vv = window.visualViewport;
+    let m = document.querySelector("main");
+    box.textContent = "window " + innerWidth + "x" + innerHeight +
+      " | zoom " + (vv ? vv.scale.toFixed(2) : "?") +
+      " | area " + (m ? m.clientWidth + "x" + m.clientHeight : "?") +
+      " | canvas " + (canvasElt ? canvasElt.style.width + " x " + canvasElt.style.height : "?");
+  }, 300);
+}
 if (window.visualViewport) window.visualViewport.addEventListener("resize", refitSoon);
 
 // The button in the corner that hides the browser's bars. iPhones don't let
