@@ -15,10 +15,19 @@ const FRAZZLE_TRIP_MAX = 38000;
 
 const EAT_TIME = 1100;     // how long eating a mushroom takes: open, chomp, swallow
 
-// how Frazzle bounces off the edges of the screen while he's floating
-const FLOAT_SPEED = 1.8;    // his drifting speed (pixels per frame)
-const BOUNCINESS = 0.75;    // 1 = keeps all his speed in a bounce, 0 = goes splat
-const WALL_GRIP = 0.3;      // how much the walls grab at him and make him roll
+// how Frazzle bounces off things while they're floating
+const FLOAT_SPEED = 1.8;    // their drifting speed (pixels per frame)
+const BOUNCINESS = 0.75;    // 1 = keeps all their speed in a bounce, 0 = goes splat
+const WALL_GRIP = 0.3;      // how much walls grab at them and make them roll
+
+// holding a floating Frazzle is like holding a balloon on a short, stretchy
+// string: these set how it feels
+const PULL_STRENGTH = 0.012;   // how hard the string pulls, per pixel it's stretched
+const MAX_PULL = 0.45;         // the most it can pull (so they lag behind you)
+const MAX_HELD_SPEED = 3.5;    // how fast you can drag them (pixels per frame)
+const SLIP_DISTANCE = 140;     // stretch it farther than this and they slip free
+const GRAB_SPIN = 1.3;         // how much pulling on them makes them turn (1 = like a real object)
+const GRAB_TWIRL = 0.12;       // the little twirl they do the moment you grab them
 
 let heldMushroom = null;   // the mushroom the player is carrying, if any
 
@@ -92,7 +101,7 @@ function draw() {
   if (heldMushroom) heldMushroom.display();
 
   // the cursor hints at what you can do: grab a mushroom (or a floating
-  // Frazzle, to twist him around), or poke a creature
+  // Frazzle, to drag them around), or poke a creature
   if (heldMushroom || frazzle.grabbed) cursor("grabbing");
   else if (mushrooms.some((m) => m.isMouseOver())) cursor("grab");
   else if (frazzle.hopPhase === "floating" && frazzle.isMouseOver()) cursor("grab");
@@ -137,6 +146,58 @@ function touchMoved(event) {
   return false;   // keep the page from scrolling while you drag a mushroom
 }
 
+function press() {
+  // phones only allow sound after the first tap, so unlock it here
+  if (typeof userStartAudio === "function") userStartAudio();
+
+  // mushrooms first, then Frazzle (they're drawn in front of Frank), then Frank
+  for (let m of mushrooms) {
+    if (m.isMouseOver()) {
+      heldMushroom = m;
+      m.pickUp();
+      return;
+    }
+  }
+  if (frazzle.isMouseOver()) {
+    // floating, they get grabbed (to drag them around); otherwise poked
+    if (frazzle.hopPhase === "floating") frazzle.grab();
+    else frazzle.poke(mouseX, mouseY);
+    cameraFocus = frazzle;
+  } else if (frank.isMouseOver()) {
+    frank.poke(mouseX, mouseY);
+    cameraFocus = frank;
+  }
+}
+
+function release() {
+  if (heldMushroom) {
+    heldMushroom.drop([frazzle, frank]);
+    if (heldMushroom.eater) cameraFocus = heldMushroom.eater;   // the camera follows whoever ate it
+    heldMushroom = null;
+  }
+  if (frazzle.grabbed) frazzle.letGo();
+}
+
+// fingers are bigger and less exact than a mouse pointer, so on a
+// touchscreen everything is a bit easier to hit
+function hitSize() {
+  return usingTouch ? 1.3 : 1;
+}
+
+function keyPressed() {
+  if (key === "d" || key === "D") showDebug = !showDebug;
+}
+
+// labels above each creature showing what state it's in (for testing)
+function drawDebugLabels() {
+  noStroke();
+  fill(255);
+  textSize(13);
+  textAlign(CENTER);
+  text(frank.mood, frank.x, frank.y - 160);
+  text(frazzle.hopPhase, frazzle.x, frazzle.y - 90);
+}
+
 // ---------------------------------------------------------------------------
 // FITTING THE SCREEN
 // The sketch is always 800 x 500 inside; this stretches the canvas on the
@@ -145,7 +206,8 @@ function touchMoved(event) {
 
 // On phones and tablets, a wide screen would leave big empty bars on the
 // sides. So we zoom in to fill the width, trimming up to this much off the
-// top (canopy) and bottom (grass). The creatures never go there.
+// top (canopy) and bottom (grass). Frank and the mushrooms never go there
+// (only Frazzle floating up high, briefly).
 const TRIM_TOP = 40;
 const TRIM_BOTTOM = 35;
 
@@ -191,7 +253,7 @@ function fitToScreen() {
   let h = area.clientHeight;
 
   // only trim on touch devices; on a computer, show the whole scene
-  let trimming = window.matchMedia("(pointer: coarse)").matches;
+  let trimming = isTouchScreen();
   let mustShow = trimming ? height - TRIM_TOP - TRIM_BOTTOM : height;
 
   // Normally: as big as it can be while the full width fits, and at least
@@ -276,20 +338,15 @@ function updateCamera() {
 // see the whole scene. Only on phones and tablets.
 function setupZoomButton() {
   let button = document.getElementById("zoom-btn");
-  if (!button || !window.matchMedia("(pointer: coarse)").matches) return;
+  if (!button || !isTouchScreen()) return;
 
-  // remember the choice from last time (if the browser lets us)
-  try {
-    zoomedIn = localStorage.getItem("zoomedIn") === "yes";
-  } catch (e) {}
+  zoomedIn = loadSetting("zoomedIn") === "yes";   // the choice from last time
 
   button.hidden = false;
   showZoomState(button);
   button.addEventListener("click", () => {
     zoomedIn = !zoomedIn;
-    try {
-      localStorage.setItem("zoomedIn", zoomedIn ? "yes" : "no");
-    } catch (e) {}
+    saveSetting("zoomedIn", zoomedIn ? "yes" : "no");
     showZoomState(button);
     fitToScreen();
   });
@@ -307,16 +364,12 @@ function setupHomeScreenTip() {
   let tip = document.getElementById("home-screen-tip");
   let isIPhone = /iPhone|iPod/.test(navigator.userAgent);
   if (!tip || !isIPhone || navigator.standalone) return;
-  try {
-    if (localStorage.getItem("tipClosed") === "yes") return;
-  } catch (e) {}
+  if (loadSetting("tipClosed") === "yes") return;
 
   tip.hidden = false;
   tip.querySelector(".tip-close").addEventListener("click", () => {
     tip.hidden = true;
-    try {
-      localStorage.setItem("tipClosed", "yes");
-    } catch (e) {}
+    saveSetting("tipClosed", "yes");
   });
 }
 
@@ -328,14 +381,10 @@ let rotateTipDone = false;
 function setupRotateTip() {
   let tip = document.getElementById("rotate-tip");
   if (!tip) return;
-  try {
-    rotateTipDone = localStorage.getItem("rotateTipClosed") === "yes";
-  } catch (e) {}
+  rotateTipDone = loadSetting("rotateTipClosed") === "yes";
   tip.querySelector(".tip-close").addEventListener("click", () => {
     hideRotateTip();
-    try {
-      localStorage.setItem("rotateTipClosed", "yes");
-    } catch (e) {}
+    saveSetting("rotateTipClosed", "yes");
   });
   updateRotateTip();
 }
@@ -343,7 +392,7 @@ function setupRotateTip() {
 // show the tip when the phone is upright (once per visit), hide it otherwise
 function updateRotateTip() {
   let tip = document.getElementById("rotate-tip");
-  if (!tip || !window.matchMedia("(pointer: coarse)").matches) return;
+  if (!tip || !isTouchScreen()) return;
   let upright = window.innerHeight > window.innerWidth;
   if (upright && !rotateTipDone && tip.hidden) {
     tip.hidden = false;
@@ -424,64 +473,8 @@ function setupFullscreenButton() {
       return;
     }
     let request = page.requestFullscreen || page.webkitRequestFullscreen;
-    let result = request.call(page);
-    // on Android, also try to keep the screen sideways
-    if (result && result.then) {
-      result.then(() => screen.orientation.lock("landscape")).catch(() => {});
-    }
+    request.call(page);
   });
-}
-
-function press() {
-  // phones only allow sound after the first tap, so unlock it here
-  if (typeof userStartAudio === "function") userStartAudio();
-
-  // mushrooms first, then Frazzle (he's drawn in front of Frank), then Frank
-  for (let m of mushrooms) {
-    if (m.isMouseOver()) {
-      heldMushroom = m;
-      m.pickUp();
-      return;
-    }
-  }
-  if (frazzle.isMouseOver()) {
-    // floating, he gets grabbed (to twist him around); otherwise poked
-    if (frazzle.hopPhase === "floating") frazzle.grab();
-    else frazzle.poke(mouseX, mouseY);
-    cameraFocus = frazzle;
-  } else if (frank.isMouseOver()) {
-    frank.poke(mouseX, mouseY);
-    cameraFocus = frank;
-  }
-}
-
-function release() {
-  if (heldMushroom) {
-    heldMushroom.drop([frazzle, frank]);
-    if (heldMushroom.eater) cameraFocus = heldMushroom.eater;   // the camera follows whoever ate it
-    heldMushroom = null;
-  }
-  if (frazzle.grabbed) frazzle.letGo();
-}
-
-// fingers are bigger and less exact than a mouse pointer, so on a
-// touchscreen everything is a bit easier to hit
-function hitSize() {
-  return usingTouch ? 1.3 : 1;
-}
-
-function keyPressed() {
-  if (key === "d" || key === "D") showDebug = !showDebug;
-}
-
-// labels above each creature showing what state it's in (for testing)
-function drawDebugLabels() {
-  noStroke();
-  fill(255);
-  textSize(13);
-  textAlign(CENTER);
-  text(frank.mood, frank.x, frank.y - 160);
-  text(frazzle.hopPhase, frazzle.x, frazzle.y - 90);
 }
 
 class Frank {
@@ -520,7 +513,7 @@ class Frank {
     this.maxWalkSpeed = 1.1;   // a slow, grumpy shuffle
     this.gaitPhase = 0;        // goes up as he walks; each 1 is a full stride
     this.feet = [{ x: 0, lift: 0 }, { x: 0, lift: 0 }];   // back foot, front foot
-    this.stepSize = 65;        // how far one poke pushes him
+    this.stepSize = 100;       // how far one poke pushes him
     this.minX = 60;            // the back of the cave
     this.maxX = 760;           // the fallen tree
 
@@ -685,12 +678,17 @@ class Frank {
     return this.isPointOver(mouseX, mouseY, hitSize());
   }
 
+  // the middle of his body on the screen (lower when he's sitting in a daze)
+  bodyCenter() {
+    let s = this.size;
+    return [this.x + this.facing * s * 0.03, this.y - s * 0.18 * (1 - this.loopy) - s * 0.55];
+  }
+
   // is the point (px, py) over his body? (an oval that roughly covers him;
   // grow makes the oval bigger)
   isPointOver(px, py, grow = 1) {
     let s = this.size;
-    let cx = this.x + this.facing * s * 0.03;
-    let cy = this.y - s * 0.18 * (1 - this.loopy) - s * 0.55;   // lower when sitting
+    let [cx, cy] = this.bodyCenter();
     return sq((px - cx) / (s * 0.5 * grow)) + sq((py - cy) / (s * 0.62 * grow)) < 1;
   }
 
@@ -716,10 +714,8 @@ class Frank {
 
   // dents his body on the side where (px, py) poked him, and he flinches
   dentAt(px, py) {
-    let s = this.size;
-    let dx = (px - this.x) * this.facing;
-    let dy = py - (this.y - s * 0.18 * (1 - this.loopy) - s * 0.55);
-    this.dentAngle = atan2(dy, dx);
+    let [cx, cy] = this.bodyCenter();
+    this.dentAngle = atan2(py - cy, (px - cx) * this.facing);
     this.dentSpring.value = 1;
     this.dentSpring.speed = 0;
     this.flinchSpring.push(-0.06);
@@ -1310,11 +1306,11 @@ class Frank {
 
 class Frazzle {
   constructor(x, y) {
-    this.x = x;          // center of his bottom
-    this.y = y;          // the ground he sits on
+    this.x = x;          // center of their bottom
+    this.y = y;          // the ground they sit on
     this.size = 80;      // everything scales from this
     this.facing = 1;     // 1 = facing right, -1 = facing left
-    this.wobbleTime = 0; // keeps increasing, so ripples travel around his edge
+    this.wobbleTime = 0; // keeps increasing, so ripples travel around their edge
     this.stretch = 1;    // squash & stretch: >1 = tall and thin, <1 = wide and flat
     this.armRaise = 0.6; // 0 = arms down, 1 = arms straight up
     this.blinker = new Blinker(2000, 5000);
@@ -1324,7 +1320,7 @@ class Frazzle {
     this.stretchGoal = 1;
     this.stretchSpring = new Spring(1, 0.15, 0.8);
 
-    // where his pupils point, -1 to 1
+    // where their pupils point, -1 to 1
     this.lookX = 0;
     this.lookY = 0;
 
@@ -1337,43 +1333,43 @@ class Frazzle {
     this.vy = 0;                // speed up/down (negative = up)
     this.nextHopAt = millis() + 1500;
     this.crouchUntil = 0;
-    this.minX = 280;            // the area he wanders in (stays out of the cave)
+    this.minX = 280;            // the area they wander in (staying out of the cave)
     this.maxX = 770;
 
-    // magic mushroom trip: he floats around the screen
+    // magic mushroom trip: they float around the screen
     this.tripUntil = 0;
-    this.tripMushroom = null;   // the one he ate (it grows back when his trip ends)
+    this.tripMushroom = null;   // the one they ate (it grows back when their trip ends)
     this.loopy = 0;             // eases 0 to 1 as the trip kicks in
-    this.spin = 0;              // his tilt angle
-    this.spinGoal = 0;          // the angle he's turning toward
-    this.spinSpeed = 0;         // how fast he's spinning while floating (radians per frame)
+    this.spin = 0;              // their tilt angle
+    this.spinGoal = 0;          // the angle they're turning toward
+    this.spinSpeed = 0;         // how fast they're spinning while floating (radians per frame)
 
-    // a bounce presses him against the wall for a moment, squishing that side
+    // a bounce presses them against the wall for a moment, squishing that side
     this.pressXSpring = new Spring(0, 0.25, 0.7);
     this.pressYSpring = new Spring(0, 0.25, 0.7);
     this.pressX = 0;
     this.pressY = 0;
 
-    // while he's floating, the player can grab him and twist him around
+    // while they're floating, the player can grab them and drag them around
     this.grabbed = false;
-    this.lastPointerX = 0;      // where the pointer was last frame
-    this.lastPointerY = 0;
+    this.grabX = 0;             // the spot you're holding them by, measured
+    this.grabY = 0;             // from their middle (before they tilt)
 
-    // coming down from a trip leaves him dizzy for a moment
-    this.justTripped = false;   // true while he's falling at the end of a trip
+    // coming down from a trip leaves them dizzy for a moment
+    this.justTripped = false;   // true while they're falling at the end of a trip
     this.dizzyUntil = 0;
-    this.restAngle = 0;         // the angle he lies at while dizzy
-    this.upsideDown = false;    // did he land upside down?
+    this.restAngle = 0;         // the angle they lie at while dizzy
+    this.upsideDown = false;    // did they land upside down?
     this.dizzy = 0;             // eases 0 to 1: googly eyes and sparkles
 
     // hugging Frank
-    this.nextHugAt = millis() + 6000;   // he's ready for a hug after this
+    this.nextHugAt = millis() + 6000;   // they're ready for a hug after this
     this.hugUntil = 0;
-    this.hugSide = 1;           // which side of Frank he's on (-1 left, 1 right)
-    this.hugReach = 0;          // 0 to 1, how far his arms are wrapped around
+    this.hugSide = 1;           // which side of Frank they're on (-1 left, 1 right)
+    this.hugReach = 0;          // 0 to 1, how far their arms are wrapped around
 
-    // landing makes him sink into the ground a little and spring back up,
-    // which squishes whatever side he landed on
+    // landing makes them sink into the ground a little and spring back up,
+    // which squishes whatever side they landed on
     this.sinkSpring = new Spring(0, 0.2, 0.7);
     this.sink = 0;
 
@@ -1383,7 +1379,7 @@ class Frazzle {
     this.gulped = false;
     this.mouthOpen = 0;         // 0 to 1, opening wide
     this.mouthShut = 0;         // 0 to 1, clamped shut in the chomp
-    this.swallow = -1;          // 0 to 1 while it sinks into his body
+    this.swallow = -1;          // 0 to 1 while it sinks into their body
 
     this.bodyColor = color(145, 150, 235);
     this.darkColor = color(90, 95, 180);
@@ -1400,14 +1396,14 @@ class Frazzle {
     let tripping = millis() < this.tripUntil;
     this.loopy = lerp(this.loopy, tripping ? 1 : 0, 0.04);
 
-    // he turns smoothly toward his goal angle and stays there
+    // they turn smoothly toward their goal angle and stay there
     this.spin = lerp(this.spin, this.spinGoal, this.grabbed ? 0.5 : 0.12);
 
     if (this.hopPhase === "floating") {
       this.float();
       if (!tripping) {
-        // the trip wears off: gravity comes back and he drops to the ground,
-        // still at whatever angle he was tilted (slipping out of your grip)
+        // the trip wears off: gravity comes back and they drop to the ground,
+        // still at whatever angle they were tilted (slipping out of your grip)
         this.grabbed = false;
         this.hopPhase = "air";
         this.justTripped = true;
@@ -1419,7 +1415,7 @@ class Frazzle {
         }
       }
     } else if (this.hopPhase === "dizzy") {
-      // rocking a little on the ground while his head stops spinning
+      // rocking a little on the ground while their head stops spinning
       this.stretchGoal = 1;
       this.y = lerp(this.y, GROUND_Y, 0.2);
       this.spinGoal = this.restAngle + sin(millis() * 0.008) * 0.12;
@@ -1432,7 +1428,7 @@ class Frazzle {
           this.stretchSpring.push(0.1);
           this.hopPhase = "air";
         } else {
-          // shake it off, and he's back to normal
+          // shake it off, and they're back to normal
           this.hopPhase = "ground";
           this.nextHopAt = millis() + random(1200, 3000);
         }
@@ -1454,8 +1450,8 @@ class Frazzle {
         this.endHug();
       }
     } else if (this.hopPhase === "ground") {
-      // gentle idle bob while he waits (and settle onto the ground, in case
-      // he landed tilted a little higher up)
+      // gentle idle bob while they wait (and settle onto the ground, in case
+      // they landed tilted a little higher up)
       this.y = lerp(this.y, GROUND_Y, 0.2);
       this.stretchGoal = 1 + 0.03 * sin(millis() * 0.004);
       if (millis() > this.nextHopAt && this.eatingSince === null) {
@@ -1467,11 +1463,11 @@ class Frazzle {
       this.stretchGoal = 0.8;
       if (millis() > this.crouchUntil) this.jump();
     } else if (this.hopPhase === "air") {
-      // ...and fly! gravity pulls him back down
+      // ...and fly! gravity pulls them back down
       this.stretchGoal = 1.15;
       if (this.justTripped || abs(this.spinSpeed) > 0.001) {
         // spinning in the air (falling at the end of a trip, or after
-        // bumping Frank): he keeps spinning, slowing down a bit
+        // bumping Frank): they keep spinning, slowing down a bit
         this.spin += this.spinSpeed;
         this.spinSpeed *= 0.98;
         this.spinGoal = this.spin;
@@ -1479,8 +1475,13 @@ class Frazzle {
       this.vy += 0.4;
       this.x += this.vx;
       this.y += this.vy;
-      this.bounceOffFrank();   // Frank is solid: no passing through him
-      // (only check while he's coming down, so a hop can get off the ground)
+      if (this.justTripped) {
+        // still part of the trip: Frank and the cave are solid. (On normal
+        // hops, Frazzle hops right past Frank.)
+        this.bounceOffFrank();
+        this.bounceOffCave();
+      }
+      // (only check while they're coming down, so a hop can get off the ground)
       if (this.vy > 0 && this.contactY() >= GROUND_Y) this.land();
     }
 
@@ -1492,7 +1493,7 @@ class Frazzle {
     let onGround = ["ground", "crouch", "dizzy", "hugging"].includes(this.hopPhase);
     this.hugReach = lerp(this.hugReach, this.hopPhase === "hugging" ? 1 : 0, this.hopPhase === "hugging" ? 0.15 : 0.3);
 
-    // his eyes eagerly follow the mouse
+    // their eyes eagerly follow the mouse
     let goalX = 0;
     let goalY = 0;
     if (mouseIsOnScreen()) {
@@ -1504,10 +1505,10 @@ class Frazzle {
     this.lookY = lerp(this.lookY, goalY, 0.35);
     this.dizzy = lerp(this.dizzy, this.hopPhase === "dizzy" ? 1 : 0, 0.15);
 
-    // his bottom is only flat while he's touching the ground
+    // their bottom is only flat while they're touching the ground
     this.flatten = lerp(this.flatten, onGround ? 1 : 0, 0.3);
 
-    // arms sway gently, and fly up while he's in the air (and wave while floating)
+    // arms sway gently, and fly up while they're in the air (and wave while floating)
     let armGoal = 0.55 + 0.1 * sin(millis() * 0.003);
     if (this.hopPhase === "air") armGoal = 0.95;
     if (this.hopPhase === "floating") armGoal = 0.85 + 0.15 * sin(millis() * 0.006);
@@ -1519,24 +1520,23 @@ class Frazzle {
   float() {
     this.stretchGoal = 1 + 0.06 * sin(millis() * 0.003);
 
-    // spin: you control it while you're holding him; otherwise it carries
-    // on by itself and the air slowly calms it down
-    if (this.grabbed) {
-      this.twistToPointer();
-    } else {
-      this.spin += this.spinSpeed;
-      this.spinSpeed *= 0.99;
-    }
+    if (this.grabbed) this.pullTowardPointer();
+
+    // spin carries on by itself, and the air slowly calms it down (a bit
+    // faster while you're holding them, so they don't twirl wildly in your hand)
+    this.spin += this.spinSpeed;
+    this.spinSpeed *= this.grabbed ? 0.98 : 0.99;
     this.spinGoal = this.spin;
 
     this.x += this.vx;
     this.y += this.vy;
     this.bounceOffWalls();
 
-    // he's a floaty little guy: after a bounce, he eases back to his
-    // gentle drifting speed (so he never gets stuck or zooms off)
+    // they're a floaty little blob: after a bounce (or being let go), they
+    // ease back to their gentle drifting speed (so they never get stuck or
+    // zoom off). Not while you're holding them, though.
     let speed = sqrt(this.vx * this.vx + this.vy * this.vy);
-    if (speed > 0.01) {
+    if (speed > 0.01 && !this.grabbed) {
       let fix = lerp(1, FLOAT_SPEED / speed, 0.02);
       this.vx *= fix;
       this.vy *= fix;
@@ -1544,36 +1544,40 @@ class Frazzle {
     if (abs(this.vx) > 0.5) this.facing = this.vx > 0 ? 1 : -1;
   }
 
-  // his body as an oval: [half its width, half its height] before tilting
+  // the y of the middle of their body (they tilt and spin around this point)
+  middleY() {
+    return this.y - this.size * 0.36;
+  }
+
+  // how hard they are to spin, for an oval their shape (used in bounces)
+  heaviness() {
+    let [a, b] = this.bodyRadii();
+    return (a * a + b * b) / 4;
+  }
+
+  // their body as an oval: [half its width, half its height] before tilting
   bodyRadii() {
     return [(this.size * 0.65) / this.stretch, this.size * 0.42 * this.stretch];
   }
 
-  // the point on the edge of his tilted oval that sticks out farthest in
-  // direction (nx, ny), measured from the middle of his body. This is the
+  // the point on the edge of their tilted oval that sticks out farthest in
+  // direction (nx, ny), measured from the middle of their body. This is the
   // spot that touches a wall in that direction.
   edgePointToward(nx, ny) {
     let [a, b] = this.bodyRadii();
-    let c = cos(this.spin);
-    let sn = sin(this.spin);
-    // turn the direction into his own (untilted) view...
-    let lx = nx * c + ny * sn;
-    let ly = -nx * sn + ny * c;
+    // turn the direction into their own (untilted) view...
+    let [lx, ly] = turnPoint(nx, ny, -this.spin);
     // ...find the farthest point of the oval that way...
     let k = sqrt(a * a * lx * lx + b * b * ly * ly);
-    let px = (a * a * lx) / k;
-    let py = (b * b * ly) / k;
     // ...and tilt it back to the screen's view
-    return [px * c - py * sn, px * sn + py * c];
+    return turnPoint((a * a * lx) / k, (b * b * ly) / k, this.spin);
   }
 
-  // Bouncing like a real object: the exact spot of his oval that touches
-  // the wall gets pushed back. If that spot isn't lined up with his middle
-  // (he's tilted), the push also sets him spinning, and a little grip
-  // against the wall makes him roll.
+  // Bouncing like a real object: the exact spot of their oval that touches
+  // the wall gets pushed back. If that spot isn't lined up with their middle
+  // (they're tilted), the push also sets them spinning, and a little grip
+  // against the wall makes them roll.
   bounceOffWalls() {
-    let s = this.size;
-
     // each wall: which way is "out" (nx, ny), and where it is
     let walls = [
       [-1, 0, 0],          // left edge of the screen
@@ -1582,49 +1586,47 @@ class Frazzle {
       [0, 1, GROUND_Y],    // the ground
     ];
     for (let [nx, ny, wallAt] of walls) {
-      let midX = this.x;
-      let midY = this.y - s * 0.36;
       let [rx, ry] = this.edgePointToward(nx, ny);
 
       // how far that edge point pokes past the wall
-      let poke = (midX + rx) * nx + (midY + ry) * ny - wallAt;
+      let poke = (this.x + rx) * nx + (this.middleY() + ry) * ny - wallAt;
       if (poke <= 0) continue;
 
-      // move him back inside, then bounce
+      // move them back inside, then bounce
       this.x -= nx * poke;
       this.y -= ny * poke;
       this.bounceAt(rx, ry, nx, ny);
     }
 
     this.bounceOffFrank();
+    this.bounceOffCave();
   }
 
-  // The bounce itself, at the spot (rx, ry) on his body (measured from his
-  // middle), against something in direction (nx, ny) from him. Returns
-  // true if he was actually moving into it (so it really was a bump).
+  // The bounce itself, at the spot (rx, ry) on their body (measured from their
+  // middle), against something in direction (nx, ny) from them. Returns
+  // true if they were actually moving into it (so it really was a bump).
   bounceAt(rx, ry, nx, ny) {
     let s = this.size;
-    let [a, b] = this.bodyRadii();
-    let heaviness = (a * a + b * b) / 4;   // how hard he is to spin (for an oval)
+    let heaviness = this.heaviness();
 
     // how fast the touching spot is moving into it
-    // (his own movement, plus the spot swinging around as he spins)
+    // (their own movement, plus the spot swinging around as they spin)
     let spotVX = this.vx - this.spinSpeed * ry;
     let spotVY = this.vy + this.spinSpeed * rx;
     let intoWall = spotVX * nx + spotVY * ny;
     if (intoWall <= 0) return false;
 
-    // the push back, pointing away from what he hit
+    // the push back, pointing away from what they hit
     let pushX = -nx;
     let pushY = -ny;
-    let twist = rx * pushY - ry * pushX;   // how much this push would spin him
+    let twist = rx * pushY - ry * pushX;   // how much this push would spin them
     let push = ((1 + BOUNCINESS) * intoWall) / (1 + (twist * twist) / heaviness);
     this.vx += push * pushX;
     this.vy += push * pushY;
     this.spinSpeed += (twist * push) / heaviness;
 
     // grip: it drags on the touching spot as it slides along, which rolls
-    // him a little
+    // them a little
     let alongX = -pushY;
     let alongY = pushX;
     let sliding = spotVX * alongX + spotVY * alongY;
@@ -1635,7 +1637,7 @@ class Frazzle {
     this.vy += grip * alongY;
     this.spinSpeed += (rollTwist * grip) / heaviness;
 
-    // squish: he presses into it a little and springs back
+    // squish: they press into it a little and spring back
     let squish = min(intoWall * 2.5, s * 0.1);
     this.pressXSpring.value += nx * squish;
     this.pressYSpring.value += ny * squish;
@@ -1644,20 +1646,17 @@ class Frazzle {
   }
 
   // Frank is solid too: floating into him, Frazzle bounces off his round
-  // body the same way he bounces off the walls, and Frank's body dents in a
+  // body the same way they bounce off the walls, and Frank's body dents in a
   // little where he got bumped.
   bounceOffFrank() {
-    let s = this.size;
-    let fs = frank.size;
     // Frank's body as an oval (sitting lower when he's in a daze)
-    let fx = frank.x + frank.facing * fs * 0.03;
-    let fy = frank.y - fs * 0.18 * (1 - frank.loopy) - fs * 0.55;
-    let frx = fs * 0.47;
-    let fry = fs * 0.55;
+    let [fx, fy] = frank.bodyCenter();
+    let frx = frank.size * 0.47;
+    let fry = frank.size * 0.55;
 
     // the direction from Frank's middle to Frazzle's middle
     let dx = this.x - fx;
-    let dy = this.y - s * 0.36 - fy;
+    let dy = this.middleY() - fy;
     let d = sqrt(dx * dx + dy * dy);
     if (d < 1) return;
     dx /= d;
@@ -1679,34 +1678,74 @@ class Frazzle {
     nx /= len;
     ny /= len;
 
-    // push Frazzle back out, then bounce him off
+    // push Frazzle back out, then bounce them off
     this.x += nx * overlap;
     this.y += ny * overlap;
     let [rx, ry] = this.edgePointToward(-nx, -ny);
     if (this.bounceAt(rx, ry, -nx, -ny)) frank.bump(px, py);
 
-    // landing on top of Frank's round head, he slides off to one side
+    // landing on top of Frank's round head, they slide off to one side
     // instead of balancing up there
     if (this.hopPhase === "air" && ny < -0.6) {
       this.vx += (dx >= 0 ? 1 : -1) * 0.6;
     }
   }
 
-  // how low his body reaches on the screen at his current tilt (not counting
+  // The cave's rock is solid too. We check points all around the edge of
+  // Frazzle's (tilted, squashed) body: the one poking deepest into the rock
+  // is where they touch, and they bounce off the rock's surface there, the
+  // same way they bounce off the walls. (The dark opening under the ledge
+  // isn't rock, so they can float into the cave.)
+  bounceOffCave() {
+    let s = this.size;
+    if (this.x - s > 300) return;   // nowhere near the cave: skip the work
+
+    // (a few tries, in case pushing them out of one part of the rock
+    // pushes them into another, like in a corner)
+    for (let tries = 0; tries < 3; tries++) {
+      let hit = this.deepestPointInCave();
+      if (!hit) return;
+      // push them back out of the rock, then bounce
+      let [rx, ry, outX, outY, depth] = hit;
+      this.x += outX * depth;
+      this.y += outY * depth;
+      this.bounceAt(rx, ry, -outX, -outY);
+    }
+  }
+
+  // the point around the edge of their body that pokes deepest into the
+  // cave rock: [x and y from their middle, the way out, how deep], or null
+  deepestPointInCave() {
+    let midX = this.x;
+    let midY = this.middleY();
+    let [a, b] = this.bodyRadii();
+    let hit = null;
+    for (let i = 0; i < 24; i++) {
+      // a point on the edge of their body, tilted, measured from their middle
+      let ang = (TWO_PI * i) / 24;
+      let [rx, ry] = turnPoint(cos(ang) * a, sin(ang) * b, this.spin);
+      if (!isInsideShape(midX + rx, midY + ry, CAVE_ROCK)) continue;
+      let [depth, outX, outY] = wayOutOfShape(midX + rx, midY + ry, CAVE_ROCK);
+      if (!hit || depth > hit[4]) hit = [rx, ry, outX, outY, depth];
+    }
+    return hit;
+  }
+
+  // how low their body reaches on the screen at their current tilt (not counting
   // the little bit at the bottom that always squishes flat on the ground)
   contactY() {
     let s = this.size;
     let a = this.spin;
     let reach = sqrt(sq(s * 0.65 * sin(a)) + sq(s * 0.42 * cos(a)));
-    return this.y - s * 0.36 + reach - s * 0.06;
+    return this.middleY() + reach - s * 0.06;
   }
 
-  // is the mouse (or a finger) over his body?
+  // is the mouse (or a finger) over their body?
   isMouseOver() {
     return this.isPointOver(mouseX, mouseY, hitSize());
   }
 
-  // is the point (px, py) over his body? (an oval that matches his squash &
+  // is the point (px, py) over their body? (an oval that matches their squash &
   // stretch; grow makes the oval bigger)
   isPointOver(px, py, grow = 1) {
     let s = this.size;
@@ -1716,12 +1755,20 @@ class Frazzle {
     return sq((px - this.x) / rx) + sq((py - cy) / ry) < 1;
   }
 
-  // grabbed while floating: you can twist him around as he drifts
+  // grabbed while floating: remember the exact spot you took hold of them
+  // (measured in their own untilted view, so it turns along with them)
   grab() {
     this.grabbed = true;
-    this.lastPointerX = mouseX;
-    this.lastPointerY = mouseY;
-    this.stretchSpring.push(-0.05);   // a little squish as you grab him
+    let [px, py] = pointerInSketch();
+    let rx = px - this.x;
+    let ry = py - this.middleY();
+    [this.grabX, this.grabY] = turnPoint(rx, ry, -this.spin);
+    this.stretchSpring.push(-0.05);   // a little squish as you grab them
+
+    // and a little twirl: grab their right side and they spin one way, their
+    // left side and they spin the other (more the farther from the middle)
+    let side = constrain(rx / (this.size * 0.65), -1, 1);
+    this.spinSpeed += side * GRAB_TWIRL;
     this.giggle();
   }
 
@@ -1729,42 +1776,63 @@ class Frazzle {
     this.grabbed = false;
   }
 
-  // drag around him to turn him, like turning a knob. Only the pointer's
-  // movement counts, so his own drifting never turns him: if you hold
-  // still, he keeps his angle.
-  twistToPointer() {
-    // from the middle of his body out to the pointer...
-    let rx = mouseX - this.x;
-    let ry = mouseY - (this.y - this.size * 0.36);
-    // ...and how far the pointer moved since last frame
-    let dx = mouseX - this.lastPointerX;
-    let dy = mouseY - this.lastPointerY;
-    // the part of that movement that goes *around* him (not toward or away
-    // from him) is how far he turns, in radians. Right over his middle it
-    // would jump around, so ignore it there.
-    let r2 = rx * rx + ry * ry;
-    let turned = r2 > 64 ? (rx * dy - ry * dx) / r2 : 0;
-    this.spin += turned;
-    // remember how fast you're turning him, so a flick keeps him spinning
-    // after you let go (and letting go slowly leaves him where he is)
-    this.spinSpeed = lerp(this.spinSpeed, turned, 0.3);
-    this.lastPointerX = mouseX;
-    this.lastPointerY = mouseY;
+  // where the spot you're holding them by is on the screen right now
+  grabPoint() {
+    let [gx, gy] = turnPoint(this.grabX, this.grabY, this.spin);
+    return [this.x + gx, this.middleY() + gy];
   }
 
-  // the player poked him at (px, py)
+  // Holding them is like holding a balloon on a short, stretchy string tied
+  // to the spot you grabbed. The string pulls them toward your pointer, but
+  // only so hard (so they lag behind you), and only so fast. Pulling on an
+  // off-center spot turns them, like grabbing a real object by its edge.
+  // Stretch the string too far and they slip out of your grip.
+  pullTowardPointer() {
+    let [px, py] = pointerInSketch();
+    let [ax, ay] = this.grabPoint();
+    let dx = px - ax;
+    let dy = py - ay;
+    let stretched = sqrt(dx * dx + dy * dy);
+    if (stretched > SLIP_DISTANCE) {
+      this.letGo();
+      this.stretchSpring.push(0.08);   // boing! they pop free
+      return;
+    }
+    if (stretched < 0.01) return;
+
+    // the pull: stronger the more it's stretched, up to a limit
+    let pull = min(stretched * PULL_STRENGTH, MAX_PULL);
+    let fx = (dx / stretched) * pull;
+    let fy = (dy / stretched) * pull;
+    // the air in your hand slows them, so they don't swing wildly
+    this.vx = (this.vx + fx) * 0.9;
+    this.vy = (this.vy + fy) * 0.9;
+    let speed = sqrt(this.vx * this.vx + this.vy * this.vy);
+    if (speed > MAX_HELD_SPEED) {
+      this.vx *= MAX_HELD_SPEED / speed;
+      this.vy *= MAX_HELD_SPEED / speed;
+    }
+
+    // pulling on an off-center spot turns them (like the push in bounceAt,
+    // made a bit stronger by GRAB_SPIN, because it's fun)
+    let rx = ax - this.x;
+    let ry = ay - this.middleY();
+    this.spinSpeed += ((rx * fy - ry * fx) / this.heaviness()) * GRAB_SPIN;
+  }
+
+  // the player poked them at (px, py)
   poke(px, py) {
     if (this.hopPhase === "ground" || this.hopPhase === "crouch") {
-      if (this.eatingSince !== null) return;   // not with his mouth full!
+      if (this.eatingSince !== null) return;   // not with their mouth full!
 
-      // where on him was he poked? -1 = his left edge, 0 = middle, 1 = right edge
+      // where were they poked? -1 = their left edge, 0 = middle, 1 = right edge
       let side = constrain((px - this.x) / (this.size * 0.65), -1, 1);
       if (abs(side) < 0.35) {
         // poked in the middle: a big, happy hop straight up
         this.vx = 0;
         this.vy = -8.5;
       } else {
-        // poked on a side: he hops away from it, farther the nearer the edge
+        // poked on a side: they hop away from it, farther the nearer the edge
         let dir = side < 0 ? 1 : -1;
         this.facing = dir;
         this.vx = dir * map(abs(side), 0.35, 1, 1.8, 3);
@@ -1780,18 +1848,18 @@ class Frazzle {
     if (giggleSound) giggleSound.play();
   }
 
-  // he can't eat another mushroom while he's eating one or still floating
+  // they can't eat another mushroom while they're eating one or still floating
   isBusy() {
     return this.eatingSince !== null || ["floating", "dizzy", "hugging"].includes(this.hopPhase);
   }
 
-  // where his mouth is on the screen (the mushroom flies here)
+  // where their mouth is on the screen (the mushroom flies here)
   mouthPosition() {
     let s = this.size;
     return [this.x + (this.facing * s * 0.28) / this.stretch, this.y - s * 0.22 * this.stretch];
   }
 
-  // a mushroom was dropped on him: he starts eating it
+  // a mushroom was dropped on them: they start eating it
   eatMushroom(m) {
     this.eatingSince = millis();
     this.eatingMushroom = m;
@@ -1832,7 +1900,7 @@ class Frazzle {
   }
 
   jump() {
-    // wander: pick a direction, turning around near the edges of his area
+    // wander: pick a direction, turning around near the edges of their area
     let dir = random([-1, 1]);
     if (this.x < this.minX + 60) dir = 1;
     if (this.x > this.maxX - 60) dir = -1;
@@ -1845,7 +1913,7 @@ class Frazzle {
       this.vx = dir * random(1.5, 2.5);
       this.vy = -random(5.5, 7.5);
     }
-    this.stretchSpring.push(0.08);   // a little extra stretch as he springs up
+    this.stretchSpring.push(0.08);   // a little extra stretch as they spring up
     this.hopPhase = "air";
   }
 
@@ -1857,12 +1925,12 @@ class Frazzle {
     this.sinkSpring.value = 0.07;
     this.sinkSpring.speed = 0;
 
-    // which way up did he land? (a is his tilt, from 0 to TWO_PI)
+    // which way up did they land? (a is their tilt, from 0 to TWO_PI)
     let a = ((this.spin % TWO_PI) + TWO_PI) % TWO_PI;
     this.upsideDown = a > PI * 0.55 && a < PI * 1.45;
 
     if (this.justTripped || this.upsideDown) {
-      // coming down from a trip (or landing on his head): dizzy for a moment
+      // coming down from a trip (or landing on their head): dizzy for a moment
       this.justTripped = false;
       this.restAngle = this.upsideDown ? this.spin - a + PI : round(this.spin / TWO_PI) * TWO_PI;
       this.spinGoal = this.restAngle;
@@ -1871,16 +1939,16 @@ class Frazzle {
       this.dizzyUntil = millis() + (this.upsideDown ? random(1500, 2200) : random(1200, 1800));
       return;
     }
-    // only a little tilted: he just turns upright
+    // only a little tilted: they just turn upright
     this.spinGoal = round(this.spin / TWO_PI) * TWO_PI;
 
-    this.flatten = 1;                 // squish flat the moment he lands
-    this.stretchSpring.push(-0.12);   // splat! the spring jiggles him back into shape
+    this.flatten = 1;                 // squish flat the moment they land
+    this.stretchSpring.push(-0.12);   // splat! the spring jiggles them back into shape
     this.hopPhase = "ground";
     this.nextHopAt = millis() + random(1200, 4500);
 
-    // landed right next to Frank (on his own, or because the player poked
-    // him over)? hug time, or a bounce if Frank's grumpy
+    // landed right next to Frank (on their own, or because the player poked
+    // them over)? hug time, or a bounce if Frank's grumpy
     if (this.wantsHug() && abs(frank.x - this.x) < 110) this.meetFrank();
   }
 
@@ -1896,7 +1964,7 @@ class Frazzle {
 
     if (frank.mood === "annoyed") {
       // Frank's too grumpy: boing! Frazzle bounces right off him
-      // (landing already squished him, so just a little extra)
+      // (landing already squished them, so just a little extra)
       this.vx = -toward * 3.5;
       this.vy = -5;
       this.hopPhase = "air";
@@ -1926,25 +1994,25 @@ class Frazzle {
     let s = this.size;
 
     push();
-    // (0, 0) is now the middle of his bottom (sunk in a bit just after landing)
+    // (0, 0) is now the middle of their bottom (sunk in a bit just after landing)
     translate(this.x + this.pressX, this.y + this.sink * s + this.pressY);
 
-    // soft shadow on the ground: smaller and fainter the higher he hops
+    // soft shadow on the ground: smaller and fainter the higher they hop
     let lift = GROUND_Y - (this.y + this.sink * s + this.pressY);
     noStroke();
     fill(0, 0, 0, map(lift, 0, 80, 45, 12, true));
     ellipse(0, lift, s * map(lift, 0, 80, 1.3, 0.7, true), s * 0.12);
 
-    // tilt around the middle of his body (when poked while floating)
+    // tilt around the middle of their body (from being dragged, or a bounce)
     translate(0, -s * 0.36);
     rotate(this.spin);
     translate(0, s * 0.36);
 
-    // mirror him when facing left, and squash/stretch his whole body
+    // mirror them when facing left, and squash/stretch their whole body
     // (narrower when taller, wider when flatter, like a jelly bubble)
     scale(this.facing / this.stretch, this.stretch);
 
-    // back arm goes behind his body (when he's hugging, it reaches around
+    // back arm goes behind their body (when they're hugging, it reaches around
     // behind Frank instead; see drawBehindFrank)
     if (this.hugReach < 0.05) this.drawArm(s, -1);
 
@@ -1953,7 +2021,7 @@ class Frazzle {
     this.bodyOutline(s);
 
     push();
-    // clip to the body so the shine and face stay inside his edges
+    // clip to the body so the shine and face stay inside their edges
     beginClip();
     this.bodyOutline(s);
     endClip();
@@ -1962,7 +2030,7 @@ class Frazzle {
     this.drawFace(s);
     pop();
 
-    // front arm goes over his body (or across Frank's front, when hugging)
+    // front arm goes over their body (or across Frank's front, when hugging)
     if (this.hugReach < 0.05) this.drawArm(s, 1);
     else this.drawHugArm(s, true);
 
@@ -1971,7 +2039,7 @@ class Frazzle {
     if (this.dizzy > 0.02) this.drawDizzySparkles(s);
   }
 
-  // While hugging, his back arm reaches around behind Frank. It's drawn
+  // While hugging, their back arm reaches around behind Frank. It's drawn
   // before Frank (using the same moves as display), so Frank's body covers
   // it and only the hand peeks out on the far side.
   drawBehindFrank() {
@@ -2006,7 +2074,7 @@ class Frazzle {
     ellipse(hx, hy, s * 0.15, s * 0.15);
   }
 
-  // little pastel sparkles circling above him while he's dizzy
+  // little pastel sparkles circling above them while they're dizzy
   drawDizzySparkles(s) {
     let colors = [color(255, 170, 220), color(170, 230, 255), color(255, 240, 150), color(190, 255, 190)];
     noStroke();
@@ -2020,8 +2088,8 @@ class Frazzle {
     }
   }
 
-  // he's a see-through jelly, so you can watch the mushroom he swallowed
-  // sink down inside him and dissolve
+  // they're a see-through jelly, so you can watch the mushroom they swallowed
+  // sink down inside them and dissolve
   drawSwallowedMushroom(s) {
     let u = smoothstep(this.swallow);
     let x = lerp(0.26, 0.02, u) * s;
@@ -2045,7 +2113,7 @@ class Frazzle {
     // curveVertex needs to wrap past the start to close the shape smoothly
     for (let i = -1; i <= n + 1; i++) {
       let a = (TWO_PI * i) / n;
-      // two soft waves travelling around his edge in opposite directions
+      // two soft waves travelling around their edge in opposite directions
       let f = 1 + 0.03 * sin(2 * a + t * 3) + 0.02 * sin(3 * a - t * 2);
       let x = cos(a) * rx * f;
       let y = -ry * 0.85 + sin(a) * ry * f;   // sit the oval a little low
@@ -2055,28 +2123,24 @@ class Frazzle {
     endShape();
   }
 
-  // If this point of his outline would end up past the ground (or, while
-  // he's floating, past the edges of the screen) after he's tilted and
+  // If this point of their outline would end up past the ground (or, while
+  // they're floating, past the edges of the screen) after they're tilted and
   // squashed, press it flat against that edge instead. That squishes
-  // whichever side of him is touching it.
+  // whichever side of them is touching it.
   // (this.flatten blends between fully round and fully squished on the ground)
   squishAgainstEdges(x, y, s) {
     let floating = this.hopPhase === "floating";
     let groundAmount = floating ? 1 : this.flatten;
     if (groundAmount < 0.01) return [x, y];
 
-    let cy = -s * 0.36;                      // he tilts around this point
-    let k = cos(this.spin);
-    let n = sin(this.spin);
-    // where his origin is on the screen right now
+    let cy = -s * 0.36;                      // they tilt around this point
+    // where their origin is on the screen right now
     let originX = this.x + this.pressX;
     let originY = this.y + this.sink * s + this.pressY;
 
     // where this point ends up on screen: squash/stretch, then tilt
-    let sx = (x * this.facing) / this.stretch;
-    let sy = y * this.stretch - cy;
-    let qx = sx * k - sy * n;
-    let qy = sx * n + sy * k + cy;
+    let [qx, qy] = turnPoint((x * this.facing) / this.stretch, y * this.stretch - cy, this.spin);
+    qy += cy;
 
     // press it back inside the ground (and the screen's edges, if floating)
     let newX = qx;
@@ -2089,10 +2153,8 @@ class Frazzle {
     }
     if (newX === qx && newY === qy) return [x, y];
 
-    // work backward to his own coordinates
-    newY -= cy;
-    let ux = newX * k + newY * n;
-    let uy = -newX * n + newY * k;
+    // work backward to their own coordinates
+    let [ux, uy] = turnPoint(newX, newY - cy, -this.spin);
     return [(ux * this.stretch) / this.facing, (uy + cy) / this.stretch];
   }
 
@@ -2122,7 +2184,7 @@ class Frazzle {
     ellipse(handX, handY, s * 0.15, s * 0.15);
   }
 
-  // a soft highlight so he looks a little squishy and shiny
+  // a soft highlight so they look a little squishy and shiny
   drawShine(s) {
     push();
     translate(-s * 0.3, -s * 0.56);
@@ -2161,10 +2223,10 @@ class Frazzle {
     ellipse(mx + mw * 0.05, my + mh * 0.32, mw * 0.45, mh * 0.35);
   }
 
-  // outward: which direction (+1 or -1) points away from his other eye
+  // outward: which direction (+1 or -1) points away from their other eye
   drawEye(cx, cy, w, h, outward, s) {
     if (this.hugReach > 0.5) {
-      // squeezing his eyes shut with joy: happy curved lines
+      // squeezing their eyes shut with joy: happy curved lines
       stroke(this.darkColor);
       strokeWeight(s * 0.035);
       noFill();
@@ -2246,145 +2308,6 @@ class Frazzle {
     strokeWeight(s * 0.035);
     noFill();
     arc(cx, cy - h * 0.75, w * 0.8, h * 0.4, PI + 0.4, TWO_PI - 0.4);
-  }
-}
-
-// A number that springs toward a goal: it speeds up toward the goal,
-// overshoots, and wobbles back and forth before settling.
-// (Frazzle's jiggle uses one.)
-class Spring {
-  constructor(value, stiffness, friction) {
-    this.value = value;
-    this.speed = 0;
-    this.stiffness = stiffness;   // bigger = snappier
-    this.friction = friction;     // closer to 1 = wobbles for longer
-  }
-
-  update(goal) {
-    this.speed += (goal - this.value) * this.stiffness;
-    this.speed *= this.friction;
-    this.value += this.speed;
-    return this.value;
-  }
-
-  // give it a sudden shove
-  push(amount) {
-    this.speed += amount;
-  }
-}
-
-// The steps of eating a mushroom, for t going from 0 to 1:
-// open wide (while the mushroom flies in), chomp shut, then swallow.
-function eatingPhases(t) {
-  return {
-    open: t < 0.3 ? smoothstep(t / 0.3) : 1 - smoothstep((t - 0.3) / 0.1),
-    shut: t > 0.38 && t < 0.65 ? sin(map(t, 0.38, 0.65, 0, PI)) : 0,
-    swallow: t > 0.45 ? (t - 0.45) / 0.55 : -1,   // -1 = not swallowing yet
-  };
-}
-
-// a heart shape centered at (x, y)
-function drawHeart(x, y, r) {
-  beginShape();
-  vertex(x, y + r * 0.9);
-  bezierVertex(x - r * 1.4, y - r * 0.2, x - r * 0.6, y - r * 1.2, x, y - r * 0.45);
-  bezierVertex(x + r * 0.6, y - r * 1.2, x + r * 1.4, y - r * 0.2, x, y + r * 0.9);
-  endShape(CLOSE);
-}
-
-// a little four-pointed sparkle centered at (x, y)
-function drawSparkle(x, y, r) {
-  beginShape();
-  for (let i = 0; i < 8; i++) {
-    let a = (i * TWO_PI) / 8 - HALF_PI;
-    let d = i % 2 === 0 ? r : r * 0.3;
-    vertex(x + cos(a) * d, y + sin(a) * d);
-  }
-  endShape(CLOSE);
-}
-
-// is the mouse inside the canvas?
-function mouseIsOnScreen() {
-  return mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height;
-}
-
-// eases from 0 to 1 smoothly: starts slow, speeds up, slows down at the end
-function smoothstep(x) {
-  x = constrain(x, 0, 1);
-  return x * x * (3 - 2 * x);
-}
-
-// Keeps track of when to blink. Each creature has its own Blinker.
-// amount() is 0 when the eyes are open and 1 when they're shut.
-class Blinker {
-  constructor(minGap, maxGap) {
-    this.minGap = minGap;      // shortest wait between blinks (milliseconds)
-    this.maxGap = maxGap;      // longest wait
-    this.duration = 160;       // how long one blink takes
-    this.startedAt = -1000;
-    this.nextAt = millis() + random(minGap, maxGap);
-  }
-
-  update() {
-    if (millis() > this.nextAt) {
-      this.startedAt = millis();
-      // now and then, a quick double blink
-      if (random() < 0.2) this.nextAt = millis() + 260;
-      else this.nextAt = millis() + random(this.minGap, this.maxGap);
-    }
-  }
-
-  amount() {
-    let t = (millis() - this.startedAt) / this.duration;
-    if (t < 0 || t > 1) return 0;
-    return sin(t * PI);   // closes, then opens again
-  }
-}
-
-class SunBeam {
-  // The beam comes in through the canopy between topLeft and topRight
-  // (at the top of the screen) and slants down to a sunny patch on the
-  // ground between groundLeft and groundRight.
-  constructor(topLeft, topRight, groundLeft, groundRight) {
-    this.topLeft = topLeft;
-    this.topRight = topRight;
-    this.groundLeft = groundLeft;
-    this.groundRight = groundRight;
-    this.color = color(255, 240, 170);
-  }
-
-  // is this x position (like Frank's feet) inside the sunny patch?
-  // margin widens the patch a little on each side
-  isInLight(x, margin = 0) {
-    return x > this.groundLeft - margin && x < this.groundRight + margin;
-  }
-
-  display() {
-    noStroke();
-    let r = red(this.color);
-    let g = green(this.color);
-    let b = blue(this.color);
-
-    // soft glow: a few faint copies of the beam, each a little wider,
-    // stacked so the middle is brightest and the edges fade out
-    for (let i = 3; i >= 0; i--) {
-      let spread = i * 10;
-      fill(r, g, b, 22);
-      quad(
-        this.topLeft - spread * 0.5, 0,
-        this.topRight + spread * 0.5, 0,
-        this.groundRight + spread, GROUND_Y,
-        this.groundLeft - spread, GROUND_Y
-      );
-    }
-
-    // warm pool of light where it hits the ground
-    let cx = (this.groundLeft + this.groundRight) / 2;
-    let w = this.groundRight - this.groundLeft;
-    fill(255, 235, 150, 70);
-    ellipse(cx, GROUND_Y + 3, w * 1.4, 16);
-    fill(255, 245, 190, 70);
-    ellipse(cx, GROUND_Y + 3, w * 0.9, 9);
   }
 }
 
@@ -2521,6 +2444,178 @@ class Mushroom {
 
     pop();
   }
+}
+
+class SunBeam {
+  // The beam comes in through the canopy between topLeft and topRight
+  // (at the top of the screen) and slants down to a sunny patch on the
+  // ground between groundLeft and groundRight.
+  constructor(topLeft, topRight, groundLeft, groundRight) {
+    this.topLeft = topLeft;
+    this.topRight = topRight;
+    this.groundLeft = groundLeft;
+    this.groundRight = groundRight;
+    this.color = color(255, 240, 170);
+  }
+
+  // is this x position (like Frank's feet) inside the sunny patch?
+  // margin widens the patch a little on each side
+  isInLight(x, margin = 0) {
+    return x > this.groundLeft - margin && x < this.groundRight + margin;
+  }
+
+  display() {
+    noStroke();
+    let r = red(this.color);
+    let g = green(this.color);
+    let b = blue(this.color);
+
+    // soft glow: a few faint copies of the beam, each a little wider,
+    // stacked so the middle is brightest and the edges fade out
+    for (let i = 3; i >= 0; i--) {
+      let spread = i * 10;
+      fill(r, g, b, 22);
+      quad(
+        this.topLeft - spread * 0.5, 0,
+        this.topRight + spread * 0.5, 0,
+        this.groundRight + spread, GROUND_Y,
+        this.groundLeft - spread, GROUND_Y
+      );
+    }
+
+    // warm pool of light where it hits the ground
+    let cx = (this.groundLeft + this.groundRight) / 2;
+    let w = this.groundRight - this.groundLeft;
+    fill(255, 235, 150, 70);
+    ellipse(cx, GROUND_Y + 3, w * 1.4, 16);
+    fill(255, 245, 190, 70);
+    ellipse(cx, GROUND_Y + 3, w * 0.9, 9);
+  }
+}
+
+// A number that springs toward a goal: it speeds up toward the goal,
+// overshoots, and wobbles back and forth before settling.
+// (Frazzle's jiggle uses one.)
+class Spring {
+  constructor(value, stiffness, friction) {
+    this.value = value;
+    this.speed = 0;
+    this.stiffness = stiffness;   // bigger = snappier
+    this.friction = friction;     // closer to 1 = wobbles for longer
+  }
+
+  update(goal) {
+    this.speed += (goal - this.value) * this.stiffness;
+    this.speed *= this.friction;
+    this.value += this.speed;
+    return this.value;
+  }
+
+  // give it a sudden shove
+  push(amount) {
+    this.speed += amount;
+  }
+}
+
+// Keeps track of when to blink. Each creature has its own Blinker.
+// amount() is 0 when the eyes are open and 1 when they're shut.
+class Blinker {
+  constructor(minGap, maxGap) {
+    this.minGap = minGap;      // shortest wait between blinks (milliseconds)
+    this.maxGap = maxGap;      // longest wait
+    this.duration = 160;       // how long one blink takes
+    this.startedAt = -1000;
+    this.nextAt = millis() + random(minGap, maxGap);
+  }
+
+  update() {
+    if (millis() > this.nextAt) {
+      this.startedAt = millis();
+      // now and then, a quick double blink
+      if (random() < 0.2) this.nextAt = millis() + 260;
+      else this.nextAt = millis() + random(this.minGap, this.maxGap);
+    }
+  }
+
+  amount() {
+    let t = (millis() - this.startedAt) / this.duration;
+    if (t < 0 || t > 1) return 0;
+    return sin(t * PI);   // closes, then opens again
+  }
+}
+
+// ---------------------------------------------------------------------------
+// LITTLE HELPERS
+// Small functions used all over the sketch.
+// ---------------------------------------------------------------------------
+
+// The steps of eating a mushroom, for t going from 0 to 1:
+// open wide (while the mushroom flies in), chomp shut, then swallow.
+function eatingPhases(t) {
+  return {
+    open: t < 0.3 ? smoothstep(t / 0.3) : 1 - smoothstep((t - 0.3) / 0.1),
+    shut: t > 0.38 && t < 0.65 ? sin(map(t, 0.38, 0.65, 0, PI)) : 0,
+    swallow: t > 0.45 ? (t - 0.45) / 0.55 : -1,   // -1 = not swallowing yet
+  };
+}
+
+// a heart shape centered at (x, y)
+function drawHeart(x, y, r) {
+  beginShape();
+  vertex(x, y + r * 0.9);
+  bezierVertex(x - r * 1.4, y - r * 0.2, x - r * 0.6, y - r * 1.2, x, y - r * 0.45);
+  bezierVertex(x + r * 0.6, y - r * 1.2, x + r * 1.4, y - r * 0.2, x, y + r * 0.9);
+  endShape(CLOSE);
+}
+
+// a little four-pointed sparkle centered at (x, y)
+function drawSparkle(x, y, r) {
+  beginShape();
+  for (let i = 0; i < 8; i++) {
+    let a = (i * TWO_PI) / 8 - HALF_PI;
+    let d = i % 2 === 0 ? r : r * 0.3;
+    vertex(x + cos(a) * d, y + sin(a) * d);
+  }
+  endShape(CLOSE);
+}
+
+// turns the point (x, y) around (0, 0) by angle, the same way rotate() does
+function turnPoint(x, y, angle) {
+  let c = cos(angle);
+  let s = sin(angle);
+  return [x * c - y * s, x * s + y * c];
+}
+
+// Remembering a setting between visits, in this browser. Some browsers don't
+// allow it (like private browsing), so these just quietly do nothing then.
+function loadSetting(name) {
+  try {
+    return localStorage.getItem(name);
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveSetting(name, value) {
+  try {
+    localStorage.setItem(name, value);
+  } catch (e) {}
+}
+
+// is this a phone or tablet (a touchscreen), rather than a computer?
+function isTouchScreen() {
+  return window.matchMedia("(pointer: coarse)").matches;
+}
+
+// is the mouse inside the canvas?
+function mouseIsOnScreen() {
+  return mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height;
+}
+
+// eases from 0 to 1 smoothly: starts slow, speeds up, slows down at the end
+function smoothstep(x) {
+  x = constrain(x, 0, 1);
+  return x * x * (3 - 2 * x);
 }
 
 // ---------------------------------------------------------------------------
@@ -3005,6 +3100,42 @@ function drawCave() {
     stroke(lerpColor(color(60, 100, 45), color(115, 160, 70), random()));
     line(x, y, x + random(-3, 3), y - random(4, 10));
   }
+}
+
+// is the point (x, y) inside a shape (a list of [x, y] corners)?
+// (count how many of the shape's edges a line going right from the point
+// crosses: an odd number means it's inside)
+function isInsideShape(x, y, points) {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    let [xi, yi] = points[i];
+    let [xj, yj] = points[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// for a point inside a shape: how far it is to the nearest edge, and which
+// way is out ([distance, outX, outY]). Edges that run along the edge of the
+// screen or the ground don't count, since the walls handle those.
+function wayOutOfShape(x, y, points) {
+  let best = [Infinity, 0, -1];
+  for (let i = 0; i < points.length; i++) {
+    let [x1, y1] = points[i];
+    let [x2, y2] = points[(i + 1) % points.length];
+    if ((x1 === 0 && x2 === 0) || (y1 === GROUND_Y && y2 === GROUND_Y)) continue;
+    // the closest spot on this edge to the point
+    let ex = x2 - x1;
+    let ey = y2 - y1;
+    let t = constrain(((x - x1) * ex + (y - y1) * ey) / (ex * ex + ey * ey), 0, 1);
+    let cx = x1 + t * ex - x;
+    let cy = y1 + t * ey - y;
+    let d = sqrt(cx * cx + cy * cy);
+    if (d < best[0] && d > 0) best = [d, cx / d, cy / d];
+  }
+  return best;
 }
 
 // the y of the top edge of the cave rock at a given x
