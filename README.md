@@ -42,8 +42,7 @@ when you drag a mushroom, it rides just above your fingertip so you can see it.
 
 Open the folder with a local web server (for example VS Code's Live Server, or
 `python3 -m http.server 8000`) and visit `http://localhost:8000`. Opening
-`index.html` directly as a file doesn't work well, because p5.sound needs a
-server.
+`index.html` directly as a file doesn't always work well.
 
 ## How it's built
 
@@ -62,7 +61,7 @@ Everything is in `sketch.js`. From top to bottom:
    - `Mushroom`: ready, held, being eaten, eaten, or regrowing
    - `SunBeam`: draws the light and checks whether Frank is standing in it
    - `Blinker` and `Spring`: small helpers for blinking and bouncy, jiggly motion
-4. **Little helpers** used all over, like `turnPoint()` and `smoothstep()`.
+4. **Little helpers** used all over, like `turnPoint()` and `easeInOut()`.
 5. **The scenery**: the forest, cave, and ground, painted once and then
    reused every frame.
 

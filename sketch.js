@@ -31,12 +31,6 @@ const GRAB_TWIRL = 0.12;       // the little twirl they do the moment you grab t
 
 let heldMushroom = null;   // the mushroom the player is carrying, if any
 
-// Frazzle's giggle. To add a real sound, put a file like giggle.mp3 in this
-// folder and add this function:
-//   function preload() { giggleSound = loadSound("giggle.mp3"); }
-// (the sound only works when the sketch runs from the local server)
-let giggleSound = null;
-
 let showDebug = false;     // press D to show each creature's state
 
 // true once the player has touched the screen (a phone or tablet), so we
@@ -147,9 +141,6 @@ function touchMoved(event) {
 }
 
 function press() {
-  // phones only allow sound after the first tap, so unlock it here
-  if (typeof userStartAudio === "function") userStartAudio();
-
   // mushrooms first, then Frazzle (they're drawn in front of Frank), then Frank
   for (let m of mushrooms) {
     if (m.isMouseOver()) {
@@ -840,7 +831,7 @@ class Frank {
     }
     // swinging forward through the air in an arc, ready for the next step
     let u = (p - 0.5) / 0.5;
-    return { x: lerp(-half, half, smoothstep(u)), lift: sin(u * PI) * this.size * 0.06 };
+    return { x: lerp(-half, half, easeInOut(u)), lift: sin(u * PI) * this.size * 0.06 };
   }
 
   // every 12-25 seconds he lets out a big, grumpy sigh
@@ -869,9 +860,9 @@ class Frank {
       if (t < 0.4) {
         this.sighBreath = 1.6 * sin((t / 0.4) * HALF_PI);
       } else if (t < 0.7) {
-        this.sighBreath = lerp(1.6, -1, smoothstep((t - 0.4) / 0.3));
+        this.sighBreath = lerp(1.6, -1, easeInOut((t - 0.4) / 0.3));
       } else {
-        this.sighBreath = lerp(-1, 0, smoothstep((t - 0.7) / 0.3));
+        this.sighBreath = lerp(-1, 0, easeInOut((t - 0.7) / 0.3));
       }
       // eyes sag half shut as he deflates, and a puff of air comes out
       this.droop = constrain(-this.sighBreath, 0, 1) * 0.5;
@@ -964,7 +955,7 @@ class Frank {
   // past the edge of his body (the belly and scales get drawn over the part
   // that's inside his outline, so only the bump shows)
   drawSwallowLump(s, bottom) {
-    let u = smoothstep(this.swallow);
+    let u = easeInOut(this.swallow);
     let x = lerp(0.44, 0.49, u) * s;
     let y = bottom + lerp(-0.6, -0.32, u) * s;
     let size = s * 0.17 * (1 - u * 0.4);
@@ -1769,7 +1760,6 @@ class Frazzle {
     // left side and they spin the other (more the farther from the middle)
     let side = constrain(rx / (this.size * 0.65), -1, 1);
     this.spinSpeed += side * GRAB_TWIRL;
-    this.giggle();
   }
 
   letGo() {
@@ -1841,11 +1831,6 @@ class Frazzle {
       this.stretchSpring.push(0.12);
       this.hopPhase = "air";
     }
-  }
-
-  // plays the giggle sound, if one has been added (see giggleSound at the top)
-  giggle() {
-    if (giggleSound) giggleSound.play();
   }
 
   // they can't eat another mushroom while they're eating one or still floating
@@ -2091,7 +2076,7 @@ class Frazzle {
   // they're a see-through jelly, so you can watch the mushroom they swallowed
   // sink down inside them and dissolve
   drawSwallowedMushroom(s) {
-    let u = smoothstep(this.swallow);
+    let u = easeInOut(this.swallow);
     let x = lerp(0.26, 0.02, u) * s;
     let y = lerp(-0.26, -0.12, u) * s;
     let size = s * 0.2 * (1 - 0.5 * u);
@@ -2350,10 +2335,10 @@ class Mushroom {
       // fly into the eater's open mouth, shrinking as it goes in
       let t = min(1, (millis() - this.eatStart) / (EAT_TIME * 0.34));
       let [mx, my] = this.eater.mouthPosition();
-      this.bite = 1 - smoothstep(t);
+      this.bite = 1 - easeInOut(t);
       // aim the middle of the cap (not the bottom of the stem) at the mouth
-      this.x = lerp(this.dropX, mx, smoothstep(t));
-      this.y = lerp(this.dropY, my + this.size * 0.6 * this.bite, smoothstep(t));
+      this.x = lerp(this.dropX, mx, easeInOut(t));
+      this.y = lerp(this.dropY, my + this.size * 0.6 * this.bite, easeInOut(t));
       if (t >= 1) this.state = "eaten";
     } else if (this.state === "growing") {
       this.growth = min(1, this.growth + 1 / 180);   // about 3 seconds
@@ -2406,7 +2391,7 @@ class Mushroom {
 
   display() {
     if (this.state === "eaten") return;
-    let s = this.size * smoothstep(this.growth);
+    let s = this.size * easeInOut(this.growth);
     if (this.state === "beingEaten") s *= this.bite;
     push();
     translate(this.x, this.y);
@@ -2553,7 +2538,7 @@ class Blinker {
 // open wide (while the mushroom flies in), chomp shut, then swallow.
 function eatingPhases(t) {
   return {
-    open: t < 0.3 ? smoothstep(t / 0.3) : 1 - smoothstep((t - 0.3) / 0.1),
+    open: t < 0.3 ? easeInOut(t / 0.3) : 1 - easeInOut((t - 0.3) / 0.1),
     shut: t > 0.38 && t < 0.65 ? sin(map(t, 0.38, 0.65, 0, PI)) : 0,
     swallow: t > 0.45 ? (t - 0.45) / 0.55 : -1,   // -1 = not swallowing yet
   };
@@ -2613,7 +2598,7 @@ function mouseIsOnScreen() {
 }
 
 // eases from 0 to 1 smoothly: starts slow, speeds up, slows down at the end
-function smoothstep(x) {
+function easeInOut(x) {
   x = constrain(x, 0, 1);
   return x * x * (3 - 2 * x);
 }
