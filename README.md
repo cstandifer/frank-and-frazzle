@@ -5,6 +5,9 @@ added sound (see [Week 8: adding sound](#week-8-adding-sound)).
 
 <img width="800" height="501" alt="Screenshot 2026-10-13 at 9 27 39 AM" src="https://github.com/user-attachments/assets/6955e971-d069-42c5-8760-b7925a5b1d7e" />
 
+**▶ [Demo video with sound](docs/frank-and-frazzle-demo.webm)** (26 seconds,
+week 8; recorded in the game with the R key; turn your volume up a little).
+
 Frank is a grumpy little monster hiding in a cave in a dense forest. All he
 really needs is some sunlight and a hug. Frazzle, his happy blob of a buddy,
 is just glad to be there.
@@ -106,6 +109,10 @@ The `class-example/` folder holds the JitterBug class example from class.
 
 ### What I checked
 
+**Demo:** [a 26-second recording of the game with its sound](docs/frank-and-frazzle-demo.webm),
+made with the R key. The sound track is there the whole way through, louder
+when the creatures move and quieter in between.
+
 **Before/after: Frazzle's bounce.** I wanted the bounce to sound like the same
 creature as the hop. Measured in the browser (the loudest pitch at the start,
 middle, and end of each sound):
@@ -142,8 +149,9 @@ middle, and end of each sound):
 - On my phone (an iPhone's silent switch can mute web audio).
 - On headphones or speakers. Frank's growl is very low (about 60 Hz), and
   laptop speakers can barely play it.
-- **[to fill in: whether you've listened to the final growl and sit-down
-  slide in the game, and what you thought]**
+
+I listened to every sound in the game on my computer, including the final
+growl and sigh and the sit-down slide.
 
 **The prompt I started with, and the first AI response.** I used Claude Code
 (in the Claude desktop app). My first prompt:
@@ -188,7 +196,8 @@ back into place), so a softer settling step plays there instead.
   as loud as I would want things," so the overall volume went down to half.
 - Frank slides into the grass when he sits for his trip, and gives "a grunty
   sigh" when hugged, then "more of a monster grunt. A low growl."
-- **[to fill in: anything else you decided, and why]**
+- The growl and sigh start "a little delayed (0.5 second)" into the hug.
+- A record key (R), so I could make a demo video with the game's sound.
 
 **How AI helped:** Claude Code read the code and explained which rules could
 control sound, trimmed and turned up my woods recording, wrote the
@@ -201,23 +210,24 @@ version of Frank & Frazzle was also made with Claude Code, in VS Code.
 **Sources:**
 - **Woods:** ["British woods ambient noise"](https://pixabay.com/sound-effects/nature-british-woods-ambient-noise-24942/)
   by freesound_community, Pixabay. I used a 60-second stretch from 12:25,
-  turned up and looped. **[to fill in: confirm the license on its Pixabay page]**
+  turned up and looped.
 - **Used in the sound lab only** (the game uses sounds made in code instead):
   - "Running" by soumages, Pixabay (file 363346): one footstep cut out.
   - "Shrt bass" by stu9, Pixabay (file 357133).
-  - **[to fill in: links, and confirm the licenses]**
+- All three recordings are from Pixabay, under the
+  [Pixabay Content License](https://pixabay.com/service/license-summary/).
 - **Libraries:** [p5.js](https://p5js.org) 1.10.0 and
   [p5.sound](https://github.com/processing/p5.js-sound) 1.0.1.
 
 ### Next question
 
-**[to fill in: pick one, or write your own]**
+**What other interactions could Frank and Frazzle have, or is this enough?**
+
+Smaller things still open:
 - Frazzle hops on their own about every 5 seconds, so their boing is the sound
   you hear most. Is it charming or distracting after a minute of play?
-- Frank already does a big grumpy sigh on his own every 12–25 seconds, and it's
-  silent. Should it use the same growl and sigh as the hug, or is that too much?
-- Does the low growl come across on a phone speaker, or does it need to be a
-  little higher to be heard?
+- Frank's own big grumpy sigh (every 12–25 seconds) is still silent.
+- Does the low growl come across on a phone speaker?
 
 **About devices:** the game doesn't use a camera or microphone. Sound is the
 only new output, it stays off until you click or tap, and **M** mutes it.
