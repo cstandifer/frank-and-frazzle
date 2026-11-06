@@ -3,12 +3,10 @@
 A p5.js virtual creature sketch for Logic of Interaction, week 5. In week 8 I
 added sound (see [Week 8: adding sound](#week-8-adding-sound)).
 
-<img width="800" height="501" alt="Screenshot 2026-10-13 at 9 27 39 AM" src="https://github.com/user-attachments/assets/6955e971-d069-42c5-8760-b7925a5b1d7e" />
+[docs_frank-and-frazzle-demo.webm](https://github.com/user-attachments/assets/8f57784b-f917-4160-b8b0-647e841b88c5)
 
 **▶ [Demo video with sound](docs/frank-and-frazzle-demo.webm)** (26 seconds,
 week 8; recorded in the game with the R key; turn your volume up a little).
-
-[docs_frank-and-frazzle-demo.webm](https://github.com/user-attachments/assets/8f57784b-f917-4160-b8b0-647e841b88c5)
 
 Frank is a grumpy little monster hiding in a cave in a dense forest. All he
 really needs is some sunlight and a hug. Frazzle, his happy blob of a buddy,
