@@ -141,6 +141,8 @@ function touchMoved(event) {
 }
 
 function press() {
+  startSound();   // browsers only allow sound after the first click or tap (sounds.js)
+
   // mushrooms first, then Frazzle (they're drawn in front of Frank), then Frank
   for (let m of mushrooms) {
     if (m.isMouseOver()) {
@@ -177,6 +179,7 @@ function hitSize() {
 
 function keyPressed() {
   if (key === "d" || key === "D") showDebug = !showDebug;
+  if (key === "m" || key === "M") toggleMute();   // sound on/off (sounds.js)
 }
 
 // labels above each creature showing what state it's in (for testing)
@@ -717,6 +720,7 @@ class Frank {
     this.huggedUntil = until;
     this.heartAt = until - 1300;   // near the end, a little heart gives him away
     this.action = null;
+    playHugSound();                // a low growl... then a big sigh (sounds.js)
   }
 
   // something bumped into him at (px, py) from the middle of his body: his
@@ -767,6 +771,7 @@ class Frank {
       this.swallow = -1;
       this.dazedUntil = millis() + random(TRIP_MIN, TRIP_MAX);
       this.tripMushroom = this.eatingMushroom;
+      playSitSound();   // he slides down into the grass (sounds.js)
     }
   }
 
@@ -789,12 +794,18 @@ class Frank {
 
       // his feet are tied to how far he's actually moved, so a planted
       // foot stays put on the ground while his body goes over it
+      let footfallsBefore = floor(this.gaitPhase * 2);
       this.gaitPhase += abs(move) / this.strideLength();
+      // a foot comes down every half stride: shuffle! (louder when he's going faster)
+      if (floor(this.gaitPhase * 2) > footfallsBefore) {
+        playStepSound(this.walkSpeed / this.maxWalkSpeed);
+      }
 
       if (abs(this.walkTo - this.x) < 0.5) {
         this.x = this.walkTo;
         this.walking = false;
         this.walkSpeed = 0;
+        playStepSound(0.4, 0.16);   // his back foot settles under him, softly
       }
     }
 
@@ -1633,6 +1644,7 @@ class Frazzle {
     this.pressXSpring.value += nx * squish;
     this.pressYSpring.value += ny * squish;
     this.stretchSpring.push(-0.03);
+    playBounceSound(intoWall);   // boing! (sounds.js decides if it's hard enough)
     return true;
   }
 
@@ -1830,6 +1842,7 @@ class Frazzle {
       }
       this.stretchSpring.push(0.12);
       this.hopPhase = "air";
+      playHopSound(1);   // a poked hop: a bigger boing
     }
   }
 
@@ -1900,9 +1913,11 @@ class Frazzle {
     }
     this.stretchSpring.push(0.08);   // a little extra stretch as they spring up
     this.hopPhase = "air";
+    playHopSound(0.4);               // an everyday hop: a little boing
   }
 
   land() {
+    playLandSound(this.justTripped ? 1 : 0.6);   // fwump into the grass (bigger after a trip)
     this.vx = 0;
     this.vy = 0;
     this.spinSpeed = 0;

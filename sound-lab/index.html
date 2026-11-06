@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frank &amp; Frazzle sound lab</title>
+    <link rel="stylesheet" href="lab.css">
+    <script src="../libraries/p5.min.js"></script>
+    <script src="../libraries/p5.sound.min.js"></script>
+  </head>
+
+  <body>
+    <main>
+      <h1>Frank &amp; Frazzle sound lab</h1>
+      <p class="intro">
+        Try each sound before it goes into the game. Where there's a toggle,
+        compare <b>your file</b> with the one <b>made in code</b>, using the same
+        button. The walk and trip buttons replay the game's own timing.
+        Press <kbd>M</kbd> to mute.
+      </p>
+
+      <section>
+        <h2>Background</h2>
+        <div class="choice" data-sound="forest">
+          <label><input type="radio" name="forest" value="file" checked> Your woods recording</label>
+          <label><input type="radio" name="forest" value="code"> Made in code: wind, leaves, birds, cave drips</label>
+        </div>
+        <div class="buttons">
+          <button id="forest-play">▶ Play</button>
+          <button id="forest-stop">■ Stop</button>
+          <label class="slider">Volume <input id="forest-volume" type="range" min="0" max="1" step="0.01" value="0.2"></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Frank's steps</h2>
+        <div class="choice" data-sound="step">
+          <label><input type="radio" name="step" value="file" checked> Your step (cut from the running clip)</label>
+          <label><input type="radio" name="step" value="code"> Made in code: a grumpy shuffle</label>
+        </div>
+        <div class="buttons">
+          <button id="step-one">One step</button>
+          <button id="step-walk">Walk after one poke</button>
+          <label class="slider">Heaviness <input id="step-weight" type="range" min="0.6" max="1.4" step="0.01" value="1"></label>
+        </div>
+        <p class="note">One poke = 4 footfalls, then a softer one as his back foot settles (the same rule as <code>updateWalk()</code>).</p>
+      </section>
+
+      <section>
+        <h2>Frank's trip and hug</h2>
+        <p class="note">Made in code.</p>
+        <div class="buttons">
+          <button id="frank-sit">Sits down for his trip</button>
+          <button id="frank-hug">Hugged: growl and sigh</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Frazzle's hop and landing</h2>
+        <p class="note">Made in code (you don't have a file for these yet).</p>
+        <div class="buttons">
+          <button id="hop-small">Little hop</button>
+          <button id="hop-poke">Poked hop</button>
+          <button id="land">Landing in grass</button>
+          <button id="hop-full">Hop + land</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Frazzle bouncing on a trip</h2>
+        <div class="choice" data-sound="bounce">
+          <label><input type="radio" name="bounce" value="file" checked> Your bass hit</label>
+          <label><input type="radio" name="bounce" value="code"> Made in code: jelly boing</label>
+        </div>
+        <div class="buttons">
+          <button id="bounce-one">One bounce</button>
+          <button id="bounce-trip">Play a trip (8 seconds)</button>
+          <label class="slider">How hard <input id="bounce-strength" type="range" min="0" max="1" step="0.01" value="0.6"></label>
+        </div>
+        <p class="note">In the game, "how hard" would come from <code>intoWall</code> in <code>bounceAt()</code>.</p>
+      </section>
+
+      <p id="status" aria-live="polite">Click any button to turn sound on.</p>
+
+      <footer>
+        <h2>Sources</h2>
+        <ul>
+          <li><b>Woods:</b> “British woods ambient noise” by freesound_community (Pixabay, file 24942). A 60-second stretch from 12:25, turned up and looped.</li>
+          <li><b>Step:</b> one footstep cut from “Running” by soumages (Pixabay, file 363346).</li>
+          <li><b>Bass hit:</b> “Shrt bass” by stu9 (Pixabay, file 357133), silence trimmed.</li>
+          <li><b>Made-in-code sounds:</b> written for this project with Claude Code, using p5.sound and the browser's Web Audio building blocks.</li>
+        </ul>
+        <p><a href="../index.html">← Back to the game</a></p>
+      </footer>
+    </main>
+
+    <script src="lab.js"></script>
+  </body>
+</html>
