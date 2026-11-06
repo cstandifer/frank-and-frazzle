@@ -19,6 +19,8 @@ const WOODS_FADE_IN = 3;          // seconds it takes to fade in after the first
 const BOUNCE_SOUND_MIN = 0.3;     // Frazzle bumps softer than this make no sound
 const BOUNCE_SOUND_GAP = 150;     // at least this many ms between bounce sounds
 
+const HUG_SOUND_DELAY = 0.5;      // seconds into a hug before Frank growls and sighs
+
 let soundCtx = null;   // the browser's sound engine (once sound is allowed)
 let soundOut;          // where every sound goes (p5's main volume)
 let hiss;              // two seconds of white noise, reused by many sounds
@@ -66,10 +68,10 @@ function playSitSound() {
   sitSlide();
 }
 
-// Frank: Frazzle hugs him. He grumbles... then gives in.
+// Frank: Frazzle hugs him. A moment later he grumbles... then gives in.
 function playHugSound() {
   if (!soundCtx) return;
-  gruntySigh();
+  gruntySigh(HUG_SOUND_DELAY);
 }
 
 // Frazzle: taking off. A poked hop (strength 1) is bigger than an everyday one.
@@ -143,9 +145,9 @@ function sitSlide() {
 }
 
 // Frank being hugged: a low monster growl (he's pretending not to like it),
-// then a long sigh as he gives in
-function gruntySigh() {
-  let t = soundCtx.currentTime;
+// then a long sigh as he gives in. delay: seconds to wait before it starts
+function gruntySigh(delay = 0) {
+  let t = soundCtx.currentTime + delay;
   // the growl: very low, slow and rough, with a raspy throat
   growl(75, 55, t, 0.05, 0.6, 0.35, 380, { rate: 18, depth: 0.45, rasp: 0.6 });
   // the sigh: air through his mouth, "haaa" sliding to "hooo" (the band slides down)

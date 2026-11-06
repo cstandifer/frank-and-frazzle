@@ -180,6 +180,7 @@ function hitSize() {
 function keyPressed() {
   if (key === "d" || key === "D") showDebug = !showDebug;
   if (key === "m" || key === "M") toggleMute();   // sound on/off (sounds.js)
+  if (key === "r" || key === "R") toggleRecording();   // record a demo video (recorder.js)
 }
 
 // labels above each creature showing what state it's in (for testing)

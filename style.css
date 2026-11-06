@@ -60,8 +60,24 @@ canvas {
 }
 
 .corner-btn[hidden],
-.tip[hidden] {
+.tip[hidden],
+#rec-badge[hidden] {
   display: none;
+}
+
+/* the "recording" sign (press R). It's outside the canvas, so it isn't in
+   the video. */
+#rec-badge {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  z-index: 7;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ff6b6b;
+  font: 600 13px/1.4 system-ui, -apple-system, sans-serif;
+  pointer-events: none;
 }
 
 /* when zoomed in, the zoom button shows a minus instead of a plus */
